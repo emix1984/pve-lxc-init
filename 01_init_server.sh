@@ -166,6 +166,34 @@ module_install_and_configure_ssh() {
     fi
 }
 
+# 模块：配置 Root 用户密码
+module_set_root_password() {
+    print_info "正在配置 Root 用户密码..."
+    
+    # 交互式获取密码（不显示输入内容）
+    read -sp "请输入 Root 用户的新密码 [默认：1234]: " input_password
+    echo ""  # 换行
+    
+    # 如果直接回车，使用默认密码
+    ROOT_PASSWORD=${input_password:-"1234"}
+    
+    # 确认密码
+    read -sp "请再次输入密码以确认: " confirm_password
+    echo ""  # 换行
+    
+    # 验证两次输入的密码是否一致
+    if [ "$ROOT_PASSWORD" != "$confirm_password" ]; then
+        print_error "两次输入的密码不一致，设置失败"
+        exit 1
+    fi
+    
+    # 设置 root 密码
+    echo "root:$ROOT_PASSWORD" | chpasswd
+    check_command "Root 用户密码设置失败" "Root 用户密码已成功配置"
+    
+    print_success "Root 密码已更新，请妥善保管您的新密码。"
+}
+
 # 模块：增强历史消息审计能力
 module_increase_history_size() {
     print_info "正在扩容 Shell 历史记录存储上限 (HISTSIZE=99999)..."
@@ -224,6 +252,7 @@ main() {
     module_set_timezone
     module_install_ssh_copy_id
     module_install_and_configure_ssh
+    module_set_root_password
     module_increase_history_size
 
     # 面板扩展安装
