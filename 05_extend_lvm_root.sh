@@ -81,8 +81,8 @@ check_lvm_root() {
         exit 1
     fi
     
-    # 检查是否为 LVM 逻辑卷（格式通常为 /dev/mapper/xxx 或 /dev/dm-xxx）
-    if [[ "$root_device" =~ ^/dev/(mapper|dm)- ]]; then
+    # 更可靠的检测方法：尝试使用 lvdisplay 查询该设备
+    if lvdisplay "$root_device" &>/dev/null; then
         ROOT_LV_PATH="$root_device"
         print_success "检测到根分区为 LVM 逻辑卷：$ROOT_LV_PATH"
         return 0
@@ -114,8 +114,8 @@ check_vg_free_space() {
     # 获取可用空间（单位：GB）
     FREE_SPACE=$(vgs --noheadings --units g -o vg_free "$VG_NAME" | awk '{gsub(/g/,""); print $1}')
     
-    # 转换为浮点数比较
-    if (( $(echo "$FREE_SPACE <= 0.01" | bc -l 2>/dev/null || echo "1") )); then
+    # 转换为浮点数比较（使用 awk 替代 bc，提高兼容性）
+    if awk "BEGIN {exit !($FREE_SPACE <= 0.01)}"; then
         print_error "卷组没有足够可用空间（当前可用：${FREE_SPACE}G）"
         print_info "请先扩展物理卷或添加新的 PV"
         exit 1
