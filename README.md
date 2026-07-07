@@ -103,18 +103,18 @@ chmod +x deploy.sh && ./deploy.sh
 pve-lxc-init/
 ├── deploy.sh                  # 统一入口 (互动菜单 + --flag 模式 + systemd 背景)
 ├── include/
-│   └── common.sh              # 共用工厂函数库
+│   ├── common.sh              # 共用工厂函数库
+│   ├── 01_init_server.sh      # [DEPRECATED] 已整合至 deploy.sh
+│   ├── 02_deploy_ssh_key.sh   # [DEPRECATED] 已整合至 deploy.sh
+│   ├── 03_setup_gotify.sh     # [DEPRECATED] 已整合至 deploy.sh
+│   ├── 04_setup_lid_sleep.sh  # [DEPRECATED] 已整合至 deploy.sh
+│   ├── 05_extend_lvm_root.sh  # [DEPRECATED] 已整合至 deploy.sh
+│   └── sys_info.sh            # [DEPRECATED] 已整合至 deploy.sh
 ├── docs/
 │   └── architecture.md        # 架构设计文档
 ├── project_skill.md           # 技术栈与踩坑记录
 ├── REQUIREMENTS.md            # 需求文档
 ├── agent.md                   # 全局环境配置
-├── 01_init_server.sh          # [DEPRECATED] 已整合至 deploy.sh
-├── 02_deploy_ssh_key.sh       # [DEPRECATED] 已整合至 deploy.sh
-├── 03_setup_gotify.sh         # [DEPRECATED] 已整合至 deploy.sh
-├── 04_setup_lid_sleep.sh      # [DEPRECATED] 已整合至 deploy.sh
-├── 05_extend_lvm_root.sh      # [DEPRECATED] 已整合至 deploy.sh
-├── sys_info.sh                # [DEPRECATED] 已整合至 deploy.sh
 └── README.md
 ```
 

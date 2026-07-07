@@ -29,8 +29,9 @@ pve-lxc-init 是一套用于 PVE LXC 容器环境（Debian/Ubuntu）的服务器
 │   send_gotify)                                                   │
 ├─────────────────────────────────────────────────────────────────┤
 │                       原有脚本 (deprecated)                       │
-│  01_init_server.sh  02_deploy_ssh_key.sh  03_setup_gotify.sh    │
-│  04_setup_lid_sleep.sh  05_extend_lvm_root.sh  sys_info.sh      │
+│  include/01_init_server.sh  include/02_deploy_ssh_key.sh        │
+│  include/03_setup_gotify.sh  include/04_setup_lid_sleep.sh      │
+│  include/05_extend_lvm_root.sh  include/sys_info.sh             │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
