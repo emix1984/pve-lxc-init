@@ -172,7 +172,7 @@ module_init_server() {
     check_command "系统更新失败" "系统已更新至最新"
 
     print_info "正在安装基础工具包..."
-    apt install -y curl wget nano tree net-tools screen tmux traceroute htop sshpass openssl jq iputils-ping lvm2
+    apt install -y curl wget nano tree screen tmux traceroute htop sshpass openssl jq iputils-ping lvm2 xfsprogs lsb-release
     check_command "工具安装失败" "基础工具包已就绪"
 
     print_info "正在同步时区: $TARGET_TIMEZONE..."
