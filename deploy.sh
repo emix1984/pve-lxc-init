@@ -737,7 +737,10 @@ module_install_tailscale() {
         if [[ "$reinstall" != [yY] ]]; then
             # 不重装，但确保服务运行和自动更新开启
             if ! systemctl is-active tailscaled &>/dev/null; then
-                systemctl enable --now tailscaled
+                systemctl enable tailscaled
+                systemctl start tailscaled
+            else
+                systemctl enable tailscaled 2>/dev/null || true
             fi
             tailscale set --auto-update=true 2>/dev/null || true
             print_success "自动更新已确保开启"
@@ -753,9 +756,10 @@ module_install_tailscale() {
     curl -fsSL https://tailscale.com/install.sh | sh
     check_command "Tailscale 安装失败" "Tailscale 安装完成"
 
-    # 启动服务
-    systemctl enable --now tailscaled
-    check_command "tailscaled 启动失败" "tailscaled 已启动"
+    # 启用开机自启并启动服务
+    systemctl enable tailscaled
+    systemctl start tailscaled
+    check_command "tailscaled 启动失败" "tailscaled 已开机自启并运行中"
 
     # 设置自动更新 (持久化，后台静默升级)
     print_info "正在启用自动更新..."
