@@ -27,6 +27,7 @@ else
 fi
 
 # ---------------------------- Default Variables ----------------------------
+ENV_FILE="/etc/default/pve-lxc-init"
 DEVICE_NAME="${DEVICE_NAME:-$(hostname)}"
 GOTIFY_URL="${GOTIFY_URL:-}"
 GOTIFY_TOKEN="${GOTIFY_TOKEN:-}"
@@ -35,6 +36,30 @@ TARGET_TIMEZONE="${TARGET_TIMEZONE:-Asia/Seoul}"
 TARGET_ROOT_HOME="${TARGET_ROOT_HOME:-/DATA/AppData}"
 INSTALL_PANEL="${INSTALL_PANEL:-none}"
 MONITOR_SCRIPT_PATH="/opt/gotify-monitor.sh"
+
+load_env() {
+    if [ -f "$ENV_FILE" ]; then
+        if source "$ENV_FILE" 2>/dev/null; then
+            print_info "已加载配置: $ENV_FILE"
+        else
+            print_error "配置格式错误，将使用默认值: $ENV_FILE"
+        fi
+    fi
+}
+
+save_env() {
+    cat > "$ENV_FILE" <<EOF
+# pve-lxc-init 持久化配置 - 由 deploy.sh 自动管理
+DEVICE_NAME="${DEVICE_NAME}"
+GOTIFY_URL="${GOTIFY_URL}"
+GOTIFY_TOKEN="${GOTIFY_TOKEN}"
+TARGET_PEER_IP="${TARGET_PEER_IP}"
+EOF
+    chmod 600 "$ENV_FILE"
+    print_success "配置已保存至: $ENV_FILE"
+}
+
+load_env
 
 # -------------------------------------------------------------------
 #                         MODULE FUNCTIONS
@@ -94,6 +119,7 @@ module_init_server() {
                     read -rp "Tailscale Peer IP [默认: $TARGET_PEER_IP]: " peer_input
                     TARGET_PEER_IP=${peer_input:-$TARGET_PEER_IP}
                 fi
+                save_env
             fi
         fi
 
@@ -764,6 +790,7 @@ menu_loop() {
             8)
                 read -rp "请输入新的机器名称: " DEVICE_NAME
                 DEVICE_NAME=${DEVICE_NAME:-$(hostname)}
+                save_env
                 print_success "当前机器名称已设为: $DEVICE_NAME"
                 if systemctl is-active gotify-monitor.timer &>/dev/null; then
                     echo ""
@@ -784,10 +811,12 @@ menu_loop() {
             9)
                 read -rp "请输入 Gotify URL (如 https://gotify.example.com): " GOTIFY_URL
                 read -rp "请输入 Gotify Token: " GOTIFY_TOKEN
+                save_env
                 print_success "Gotify 配置已更新"
                 ;;
             10)
                 read -rp "请输入 Tailscale Peer IP: " TARGET_PEER_IP
+                save_env
                 print_success "Peer IP 已设为: $TARGET_PEER_IP"
                 ;;
             0)
