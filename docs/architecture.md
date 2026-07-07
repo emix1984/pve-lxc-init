@@ -95,8 +95,9 @@ deploy.sh 变量 (DEVICE_NAME/GOTIFY_URL/GOTIFY_TOKEN/TARGET_PEER_IP)
 | 资源 | 路径 |
 |------|------|
 | 入口脚本 | `/opt/pve-lxc-init/deploy.sh` |
+| 配置模板 | `.env.sample` (專案根目錄，可推送 GitHub) |
 | 共用库 | `include/common.sh` |
-| 持久化配置 (env) | `/etc/default/pve-lxc-init` |
+| 持久化配置 (env) | `/etc/default/pve-lxc-init` (chmod 600) |
 | 开机通知脚本 | `/opt/gotify_startup.sh` |
 | 关机通知脚本 | `/opt/gotify_shutdown.sh` |
 | 监控 Agent service | `/etc/systemd/system/gotify-monitor.service` |

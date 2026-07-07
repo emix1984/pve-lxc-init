@@ -20,6 +20,11 @@
 - [x] 选项 1 整合 Gotify 安装 + 确认摘要
 - [x] 脚本全量移除 sudo 依赖，仅以 root 身份运行
 - [x] 监控 Agent 强制重启升级为三级内核级：`--force --force` → `-ff` → `Magic SysRq`
+- [x] 全面支援 Ubuntu 24.04 / 26.04、Debian 12 / 13
+- [x] 新增 .env.sample 配置模板（可安全推送 GitHub）
+- [x] 新增 xfsprogs 套件（XFS 根目錄擴容支援）
+- [x] 移除已棄用 net-tools 套件
+- [x] 新增 lsb-release 套件（系統資訊輸出更完整）
 
 ## 待优化/衍生需求
 

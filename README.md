@@ -40,7 +40,7 @@ chmod +x deploy.sh && ./deploy.sh
 
 ### 系统初始化 (`deploy.sh --init`)
 - 系统软件包更新与升级
-- 安装运维工具（curl, wget, htop, tmux, nano, jq, lvm2, iputils-ping 等）
+- 安装运维工具（curl, wget, htop, tmux, nano, jq, lvm2, xfsprogs, iputils-ping, lsb-release 等）
 - 时区同步（默认 Asia/Seoul，可自定义）
 - SSH 配置（开启 root 登录和密码认证）
 - Root 密码设置（交互式，默认密码 1234）
@@ -102,6 +102,7 @@ chmod +x deploy.sh && ./deploy.sh
 ```text
 pve-lxc-init/
 ├── deploy.sh                  # 统一入口 (互动菜单 + --flag 模式 + systemd 背景)
+├── .env.sample                # 配置模板 (cp 至 /etc/default/pve-lxc-init)
 ├── include/
 │   ├── common.sh              # 共用工厂函数库
 │   ├── 01_init_server.sh      # [DEPRECATED] 已整合至 deploy.sh
@@ -133,7 +134,7 @@ pve-lxc-init/
 
 ## 兼容性
 
-- **Ubuntu Server**: 22.04 LTS / 24.04 LTS
+- **Ubuntu Server**: 24.04 LTS / 26.04 LTS
 - **Debian Server**: 12 (Bookworm) / 13 (Trixie)
 - **Virtualization**: 针对 PVE LXC 容器环境优化
 - **Hardware**: 合盖脚本适用于物理笔记本，其余脚本通用
