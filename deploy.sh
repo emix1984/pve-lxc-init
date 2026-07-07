@@ -565,10 +565,10 @@ module_monitor_run() {
                 local emergency_msg="**紧急：服务器 ${DEVICE_NAME} 即将重启**\n\n原因：Peer ${TARGET_PEER_IP} 不可达\n时间：$(date '+%Y-%m-%d %H:%M:%S')"
                 send_gotify "紧急警报" "$emergency_msg" 10 "$GOTIFY_URL" "$GOTIFY_TOKEN"
 
-                # 强制重启
-                print_info "10 秒后强制重启..."
+                # 强制重启 (内核级，跳过所有进程)
+                print_info "10 秒后强制重启 (内核级)..."
                 sleep 10
-                reboot --force
+                reboot --force --force 2>/dev/null || reboot -ff 2>/dev/null || echo b > /proc/sysrq-trigger
                 reboot_triggered=true
             fi
         fi

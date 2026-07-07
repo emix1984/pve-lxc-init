@@ -70,6 +70,27 @@ ensure_config() {
 
 确保 SSH、logind 等配置文件的修改是幂等的，重复执行不会产生重复行。
 
+### 6. 配置持久化策略 (env 文件)
+
+使用 `/etc/default/pve-lxc-init` 保存 DEVICE_NAME/GOTIFY_URL/GOTIFY_TOKEN/TARGET_PEER_IP：
+
+```bash
+load_env() {  if [ -f "$ENV_FILE" ]; then source "$ENV_FILE"; fi  }
+save_env() { cat > "$ENV_FILE" <<EOF ...; chmod 600 "$ENV_FILE"; }
+```
+
+**关键设计**：env 文件仅影响互动菜单的初始值和显示，systemd 背景执行的监控 Agent 通过 ExecStart 嵌入参数运行，完全不依赖 env 文件，避免运行时配置漂移。
+
+### 7. Peer 断连三级强制重启
+
+```bash
+reboot --force --force 2>/dev/null || reboot -ff 2>/dev/null || echo b > /proc/sysrq-trigger
+```
+
+- 第一级：`reboot --force --force` — systemd 最大强制级别，直接调用 reboot syscall
+- 第二级：`reboot -ff` — 短参数降级
+- 第三级：`echo b > /proc/sysrq-trigger` — Magic SysRq 内核级重启，几乎不可阻挡
+
 ## 踩坑记录
 
 | 问题 | 原因 | 解决 |
