@@ -68,6 +68,13 @@ chmod +x deploy.sh && ./deploy.sh
 - **网络发现**: Public IP（三源回退）、Local IP、Tailscale IP
 - **推送频率**: 每 2 小时通过 systemd timer 执行（OnBootSec=5min, Persistent=true）
 
+### Tailscale 安装 (`deploy.sh --tailscale-install`)
+- 官方脚本一键安装 (`curl -fsSL https://tailscale.com/install.sh | sh`)
+- 自动启动并启用 tailscaled 服务
+- 默认开启自动更新 (`tailscale set --auto-update=true`)
+- 引导 `tailscale up` 认证流程
+- 自动将 Tailscale IP 设为监控 Agent 的 Peer IP（可选）
+
 ### 系统信息 (`deploy.sh --sys-info`)
 彩色输出 CPU 拓扑、内存负载、磁盘分布、网络 IP、系统版本、运行中服务等诊断信息。
 
@@ -82,10 +89,11 @@ chmod +x deploy.sh && ./deploy.sh
 # 选单: 1 → 4 → 5
 ```
 
-### 场景 2：一键全自动
+### 一键全自动
 
 ```bash
 ./deploy.sh --init
+./deploy.sh --tailscale-install
 ./deploy.sh --monitor-install --Device "MyServer" --GotifyUrl "https://..." --GotifyToken "..."
 ```
 
@@ -129,6 +137,34 @@ pve-lxc-init/
 | `gotify-shutdown.service` | 关机 | 推送关机预警 |
 | `gotify-monitor.service` | oneshot | 执行监控采集 |
 | `gotify-monitor.timer` | 每 2h | 触发监控采集 |
+
+---
+
+## 菜单导航
+
+```text
+┌── 系统初始化 ──────────────┐
+│  [1] 一键初始化服务器        │
+│  [2] SSH 密钥免密部署       │
+│  [3] 系统信息查询           │
+└────────────────────────────┘
+┌── Gotify 推送系统 ─────────┐
+│  [4] 安装通知 (开机/关机)   │
+│  [5] 安装监控 Agent (每 2h) │
+└────────────────────────────┘
+┌── 网络配置 ────────────────┐
+│ [11] 安装 Tailscale        │
+└────────────────────────────┘
+┌── 进阶设定 ────────────────┐
+│  [6] 禁用笔记本合盖睡眠     │
+│  [7] LVM 根分区扩容        │
+└────────────────────────────┘
+┌── 系统配置 ────────────────┐
+│  [8] 修改机器名称           │
+│  [9] 修改 Gotify URL/Token  │
+│ [10] 修改 Tailscale Peer IP │
+└────────────────────────────┘
+```
 
 ---
 

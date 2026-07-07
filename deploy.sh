@@ -723,6 +723,82 @@ TIMER
     systemctl list-timers | grep gotify-monitor || true
 }
 
+# ====================== Module: Tailscale Install ======================
+module_install_tailscale() {
+    print_title "Tailscale 安装与配置"
+
+    # 检查是否已安装
+    if command -v tailscale &>/dev/null; then
+        local ts_ver
+        ts_ver=$(tailscale version 2>/dev/null | head -1)
+        print_info "检测到 Tailscale 已安装 (版本: ${ts_ver:-unknown})"
+        echo ""
+        read -rp "是否重新安装/更新至最新版? (y/n, 默认 n): " reinstall
+        if [[ "$reinstall" != [yY] ]]; then
+            # 不重装，但确保服务运行和自动更新开启
+            if ! systemctl is-active tailscaled &>/dev/null; then
+                systemctl enable --now tailscaled
+            fi
+            tailscale set --auto-update=true 2>/dev/null || true
+            print_success "自动更新已确保开启"
+            echo ""
+            print_info "当前 Tailscale 状态:"
+            tailscale status 2>/dev/null || print_info "尚未认证，请执行: tailscale up"
+            return
+        fi
+    fi
+
+    # 安装官方脚本
+    print_info "正在安装 Tailscale (官方脚本)..."
+    curl -fsSL https://tailscale.com/install.sh | sh
+    check_command "Tailscale 安装失败" "Tailscale 安装完成"
+
+    # 启动服务
+    systemctl enable --now tailscaled
+    check_command "tailscaled 启动失败" "tailscaled 已启动"
+
+    # 设置自动更新 (持久化，后台静默升级)
+    print_info "正在启用自动更新..."
+    tailscale set --auto-update=true 2>/dev/null || true
+    print_success "自动更新已启用 (Tailscale 将在后台自动升级)"
+
+    # 引导认证
+    echo ""
+    print_info "Tailscale 需要认证才能连接到您的 tailnet"
+    print_info "执行以下命令完成认证:"
+    echo ""
+    echo "    tailscale up"
+    echo ""
+    echo "系统将打开一个登录链接，在浏览器中认证即可"
+    echo ""
+    read -rp "是否立即执行 tailscale up? (y/n, 默认 y): " do_up
+    do_up=${do_up:-y}
+    if [[ "$do_up" == [yY] ]]; then
+        tailscale up
+        print_success "Tailscale 认证流程已完成"
+    else
+        print_info "稍后可手动执行 'tailscale up' 完成认证"
+    fi
+
+    # 显示状态
+    echo ""
+    print_info "Tailscale 状态:"
+    tailscale status 2>/dev/null || true
+
+    # 可选：将本机 IP 设为 Peer IP
+    local ts_ip
+    ts_ip=$(tailscale ip -4 2>/dev/null || true)
+    if [ -n "$ts_ip" ] && [ -z "$TARGET_PEER_IP" ]; then
+        echo ""
+        read -rp "是否将此 Tailscale IP ($ts_ip) 设为监控 Agent 的目标 Peer IP? (y/n): " set_peer
+        if [[ "$set_peer" == [yY] ]]; then
+            TARGET_PEER_IP="$ts_ip"
+            save_env
+            print_success "目标 Peer IP 已设为: $ts_ip"
+        fi
+    fi
+}
+
 # --------------------------------------------------------
 #                        MENU
 # --------------------------------------------------------
@@ -756,6 +832,10 @@ show_menu() {
     echo "║   │  [5] 安装监控 Agent (每 2h)      │    ║"
     echo "║   └────────────────────────────────────┘    ║"
     echo "║                                              ║"
+    echo "║   ┌── 网络配置 ───────────────────────┐    ║"
+    echo "║   │ [11] 安装 Tailscale (含自动更新)  │    ║"
+    echo "║   └────────────────────────────────────┘    ║"
+    echo "║                                              ║"
     echo "║   ┌── 进阶设定 ───────────────────────┐    ║"
     echo "║   │  [6] 禁用笔记本合盖睡眠           │    ║"
     echo "║   │  [7] LVM 根分区扩容              │    ║"
@@ -777,7 +857,7 @@ show_menu() {
 menu_loop() {
     while true; do
         show_menu
-        read -rp "   请输入选项编号 [0-10]: " choice
+        read -rp "   请输入选项编号 [0-11]: " choice
         echo ""
         case "$choice" in
             1) module_init_server ;;
@@ -817,8 +897,9 @@ menu_loop() {
             10)
                 read -rp "请输入 Tailscale Peer IP: " TARGET_PEER_IP
                 save_env
-                print_success "Peer IP 已设为: $TARGET_PEER_IP"
+                print_success "Peer IP 已更新为: $TARGET_PEER_IP"
                 ;;
+            11) module_install_tailscale ;;
             0)
                 print_info "感谢使用，再见"
                 exit 0
@@ -850,6 +931,7 @@ usage() {
     echo "  --sys-info      系统信息查询"
     echo "  --monitor       运行监控 Agent (单次)"
     echo "  --monitor-install 安装监控 Agent 定时器 (每 2h)"
+    echo "  --tailscale-install 安装 Tailscale (含自动更新)"
     echo ""
     echo "参数:"
     echo "  --Device <名称>      指定机器名称 (默认: hostname)"
@@ -875,6 +957,7 @@ parse_args() {
             --sys-info)         MODE="sys-info"; shift ;;
             --monitor)          MODE="monitor"; shift ;;
             --monitor-install)  MODE="monitor-install"; shift ;;
+            --tailscale-install) MODE="tailscale-install"; shift ;;
             --Device)           DEVICE_NAME="$2"; shift 2 ;;
             --GotifyUrl)        GOTIFY_URL="$2"; shift 2 ;;
             --GotifyToken)      GOTIFY_TOKEN="$2"; shift 2 ;;
@@ -916,6 +999,7 @@ main() {
         sys-info)        module_sys_info ;;
         monitor)         module_monitor_run ;;
         monitor-install) module_monitor_install ;;
+        tailscale-install) module_install_tailscale ;;
         *)               print_error "未指定有效模块"; usage ;;
     esac
 }
