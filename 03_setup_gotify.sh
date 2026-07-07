@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # [DEPRECATED] 此脚本已整合至 deploy.sh
-# 建议使用: sudo ./deploy.sh --gotify
+# 建议使用: ./deploy.sh --gotify (需 root 身份)
 # 此文件保留以确保向后兼容，不再主动维护新功能。
 # ==============================================================================
 
@@ -42,7 +42,7 @@ check_command() {
 
 check_root() {
     if [ "$EUID" -ne 0 ]; then
-        print_error "权限不足：请使用 root 权限运行此脚本 (sudo ./03_setup_gotify.sh)"
+        print_error "权限不足：请使用 root 身份运行此脚本 (./03_setup_gotify.sh)"
         exit 1
     fi
 }

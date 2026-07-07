@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # [DEPRECATED] 此脚本已整合至 deploy.sh
-# 建议使用: sudo ./deploy.sh --extend-lvm
+# 建议使用: ./deploy.sh --extend-lvm (需 root 身份)
 # 此文件保留以确保向后兼容，不再主动维护新功能。
 # ==============================================================================
 
@@ -46,7 +46,7 @@ check_command() {
 # 检查运行权限 (脚本大多数配置均需 root 身份)
 check_root() {
     if [ "$EUID" -ne 0 ]; then
-        print_error "权限不足：请使用 root 身份或 sudo 运行此脚本 (sudo ./05_extend_lvm_root.sh)"
+        print_error "权限不足：请使用 root 身份运行此脚本 (./05_extend_lvm_root.sh)"
         exit 1
     fi
 }

@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # [DEPRECATED] 此脚本已整合至 deploy.sh
-# 建议使用: sudo ./deploy.sh --init
+# 建议使用: ./deploy.sh --init (需 root 身份)
 # 此文件保留以确保向后兼容，不再主动维护新功能。
 # ==============================================================================
 
@@ -46,7 +46,7 @@ check_command() {
 # 检查运行权限 (脚本大多数配置均需 root 身份)
 check_root() {
     if [ "$EUID" -ne 0 ]; then
-        print_error "权限不足：请使用 root 身份或 sudo 运行此脚本 (sudo ./01_init_server.sh)"
+        print_error "权限不足：请使用 root 身份运行此脚本 (./01_init_server.sh)"
         exit 1
     fi
 }
@@ -150,7 +150,7 @@ module_install_ssh_copy_id() {
 # 模块：SSH 服务端调优
 module_install_and_configure_ssh() {
     print_info "正在强化 SSH 服务配置 (开启 root 登陆与密码认证模式)..."
-    apt update && apt install -y openssh-server sudo
+    apt update && apt install -y openssh-server
     check_command "基础服务端环境安装失败" "SSH 服务端核心组件已安装"
     
     systemctl enable --now ssh

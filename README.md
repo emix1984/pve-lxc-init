@@ -13,7 +13,7 @@
 ```bash
 # 下载入口脚本
 curl -fsSL -o deploy.sh https://github.com/emix1984/pve-lxc-init/raw/main/deploy.sh && \
-chmod +x deploy.sh && sudo ./deploy.sh
+chmod +x deploy.sh && ./deploy.sh
 ```
 
 互动菜单中可选择所有功能模块并自定义机器名称。
@@ -21,14 +21,14 @@ chmod +x deploy.sh && sudo ./deploy.sh
 ### 单次命令模式
 
 ```bash
-# 全自动初始化
-sudo ./deploy.sh --init
+# 全自动初始化 (需 root)
+./deploy.sh --init
 
-# 安装监控 Agent (每 2h)
-sudo ./deploy.sh --monitor-install --Device MyServer --GotifyUrl https://gotify.example.com --GotifyToken xxxx
+# 安装监控 Agent (每 2h) (需 root)
+./deploy.sh --monitor-install --Device MyServer --GotifyUrl https://gotify.example.com --GotifyToken xxxx
 
-# 运行一次监控报告
-sudo ./deploy.sh --monitor --Device MyServer --GotifyUrl https://gotify.example.com --GotifyToken xxxx
+# 运行一次监控报告 (需 root)
+./deploy.sh --monitor --Device MyServer --GotifyUrl https://gotify.example.com --GotifyToken xxxx
 
 # 系统信息查询
 ./deploy.sh --sys-info
@@ -78,15 +78,15 @@ sudo ./deploy.sh --monitor --Device MyServer --GotifyUrl https://gotify.example.
 ### 场景 1：新容器初始化
 
 ```bash
-sudo ./deploy.sh
+./deploy.sh
 # 选单: 1 → 4 → 5
 ```
 
 ### 场景 2：一键全自动
 
 ```bash
-sudo ./deploy.sh --init
-sudo ./deploy.sh --monitor-install --Device "MyServer" --GotifyUrl "https://..." --GotifyToken "..."
+./deploy.sh --init
+./deploy.sh --monitor-install --Device "MyServer" --GotifyUrl "https://..." --GotifyToken "..."
 ```
 
 ### 场景 3：改名后同步 systemd

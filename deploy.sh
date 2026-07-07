@@ -83,7 +83,7 @@ module_init_server() {
 
     # SSH 调优
     print_info "正在配置 SSH 服务..."
-    apt install -y openssh-server openssh-client sudo
+    apt install -y openssh-server openssh-client
     systemctl enable --now ssh
     local ssh_cfg="/etc/ssh/sshd_config"
     if [ -f "$ssh_cfg" ]; then

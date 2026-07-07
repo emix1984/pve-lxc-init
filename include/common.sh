@@ -23,7 +23,7 @@ check_command() {
 
 check_root() {
     if [ "$EUID" -ne 0 ]; then
-        print_error "权限不足：请使用 root 身份或 sudo 运行此脚本"
+        print_error "权限不足：请使用 root 身份运行此脚本"
         exit 1
     fi
 }
