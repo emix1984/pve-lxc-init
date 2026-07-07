@@ -44,10 +44,12 @@ MONITOR_SCRIPT_PATH="/opt/gotify-monitor.sh"
 module_init_server() {
     print_title "一键初始化服务器"
 
-    if [ ! -t 0 ]; then
-        print_info "非交互模式，跳过面板安装询问，默认不安装面板"
-        INSTALL_PANEL="none"
-    else
+    local INSTALL_GOTIFY_NOTIFY=false
+    local INSTALL_GOTIFY_MONITOR=false
+    local PASSWORD_MATCH=false
+
+    # ========== 交互收集阶段 ==========
+    if [ -t 0 ]; then
         echo "选择预装管理面板:"
         echo "  1) CasaOS (轻量级家庭云系统)"
         echo "  2) 1Panel (现代化开源通用面板)"
@@ -62,26 +64,95 @@ module_init_server() {
         TARGET_TIMEZONE=${tz_input:-$TARGET_TIMEZONE}
         read -rp "设定 Root 工作目录 [默认: $TARGET_ROOT_HOME]: " dir_input
         TARGET_ROOT_HOME=${dir_input:-$TARGET_ROOT_HOME}
+
+        # Root 密码
+        echo ""
+        read -sp "请输入 Root 新密码 [默认: 1234]: " pw1; echo
+        local ROOT_PW_INPUT=${pw1:-1234}
+        read -sp "请再次输入密码: " pw2; echo
+        if [ "$ROOT_PW_INPUT" = "$pw2" ] && [ -n "$ROOT_PW_INPUT" ]; then
+            ROOT_PW="$ROOT_PW_INPUT"
+            PASSWORD_MATCH=true
+        else
+            print_error "两次密码不一致，跳过密码设置"
+        fi
+
+        # Gotify 配置
+        echo ""
+        print_separator
+        echo "--- Gotify 推送配置 (可选，可跳过) ---"
+        read -rp "是否配置 Gotify? (y/n, 默认 n): " gotify_yn
+        if [[ "$gotify_yn" == [yY] ]]; then
+            read -rp "请输入 Gotify URL (如 https://gotify.example.com): " GOTIFY_URL
+            read -rp "请输入 Gotify Token: " GOTIFY_TOKEN
+            if [ -n "$GOTIFY_URL" ] && [ -n "$GOTIFY_TOKEN" ]; then
+                read -rp "安装开机/关机通知? (y/n, 默认 y): " yn_notify
+                [[ "$yn_notify" != [nN] ]] && INSTALL_GOTIFY_NOTIFY=true
+                read -rp "安装监控 Agent (每 2h 推送)? (y/n, 默认 y): " yn_mon
+                if [[ "$yn_mon" != [nN] ]]; then
+                    INSTALL_GOTIFY_MONITOR=true
+                    read -rp "Tailscale Peer IP [默认: $TARGET_PEER_IP]: " peer_input
+                    TARGET_PEER_IP=${peer_input:-$TARGET_PEER_IP}
+                fi
+            fi
+        fi
+
+        # 确认摘要
+        echo ""
+        print_separator
+        echo "========== 执行确认 =========="
+        if [ "$INSTALL_PANEL" = "none" ]; then
+            echo "  面板安装: 不安装"
+        else
+            echo "  面板安装: $INSTALL_PANEL"
+        fi
+        echo "  时区: $TARGET_TIMEZONE"
+        echo "  工作目录: $TARGET_ROOT_HOME"
+        if $PASSWORD_MATCH; then
+            echo "  Root 密码: 已设置"
+        else
+            echo "  Root 密码: 跳过"
+        fi
+        if [ -n "$GOTIFY_URL" ]; then
+            echo "  Gotify URL: $GOTIFY_URL"
+            if $INSTALL_GOTIFY_NOTIFY; then
+                echo "  开机/关机通知: 安装"
+            else
+                echo "  开机/关机通知: 跳过"
+            fi
+            if $INSTALL_GOTIFY_MONITOR; then
+                echo "  监控 Agent (每 2h): 安装"
+            else
+                echo "  监控 Agent (每 2h): 跳过"
+            fi
+        fi
+        echo "============================="
+        read -rp "确认执行以上操作? (y/n, 默认 y): " confirm
+        confirm=${confirm:-y}
+        if [[ "$confirm" != [yY] ]]; then
+            print_info "已取消"
+            exit 0
+        fi
+    else
+        INSTALL_PANEL="none"
+        print_info "非交互模式，仅执行系统初始化，跳过面板/Gotify/密码设置"
     fi
 
+    # ========== 执行阶段 ==========
     check_root
 
-    # 系统更新
     print_info "正在更新系统软件包..."
     apt update && apt upgrade -y
     check_command "系统更新失败" "系统已更新至最新"
 
-    # 安装基础工具
     print_info "正在安装基础工具包..."
     apt install -y curl wget nano tree net-tools screen tmux traceroute htop sshpass openssl jq iputils-ping lvm2
     check_command "工具安装失败" "基础工具包已就绪"
 
-    # 时区同步
     print_info "正在同步时区: $TARGET_TIMEZONE..."
     timedatectl set-timezone "$TARGET_TIMEZONE"
     check_command "时区设置失败" "时区已设为 $TARGET_TIMEZONE"
 
-    # SSH 调优
     print_info "正在配置 SSH 服务..."
     apt install -y openssh-server openssh-client
     systemctl enable --now ssh
@@ -94,27 +165,16 @@ module_init_server() {
         print_success "SSH 配置已更新 (root 登录 + 密码认证)"
     fi
 
-    # 设置 root 密码 (仅交互模式)
-    if [ -t 0 ]; then
-        print_info "设置 Root 密码..."
-        read -sp "请输入 Root 新密码 [默认: 1234]: " pw1; echo
-        ROOT_PW=${pw1:-1234}
-        read -sp "请再次输入密码: " pw2; echo
-        if [ "$ROOT_PW" != "$pw2" ]; then
-            print_error "两次密码不一致"
-        else
-            echo "root:$ROOT_PW" | chpasswd
-            check_command "密码设置失败" "Root 密码已更新"
-        fi
+    if $PASSWORD_MATCH; then
+        echo "root:$ROOT_PW" | chpasswd
+        check_command "密码设置失败" "Root 密码已更新"
     fi
 
-    # 扩容历史记录
     print_info "正在扩容历史记录..."
     local profile="/etc/profile"
     ensure_config "HISTSIZE=" "HISTSIZE=99999" "$profile"
     ensure_config "HISTFILESIZE=" "HISTFILESIZE=99999" "$profile"
 
-    # 安装面板
     if [ "$INSTALL_PANEL" = "casaos" ]; then
         print_info "正在安装 CasaOS..."
         curl -fsSL https://get.casaos.io | bash
@@ -125,16 +185,25 @@ module_init_server() {
         check_command "1Panel 安装失败" "1Panel 安装完成"
     fi
 
-    # 建立工作目录
     mkdir -p "$TARGET_ROOT_HOME"
     print_success "工作目录已就绪: $TARGET_ROOT_HOME"
 
-    # 系统清理
     print_info "正在清理系统缓存..."
     apt clean && apt autoremove --purge -y
     rm -rf /var/cache/apt/archives/* /tmp/*
 
-    print_success "服务器初始化完成"
+    print_success "系统初始化完成"
+
+    # ========== Gotify 后置安装 ==========
+    if [ -n "$GOTIFY_URL" ] && [ -n "$GOTIFY_TOKEN" ]; then
+        if $INSTALL_GOTIFY_NOTIFY; then
+            module_gotify_notify
+        fi
+        if $INSTALL_GOTIFY_MONITOR; then
+            module_monitor_install
+        fi
+    fi
+
     print_info "建议重新登录或运行 'source /etc/profile' 启用历史记录扩容"
 }
 
