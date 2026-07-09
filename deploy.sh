@@ -559,6 +559,25 @@ module_sys_info() {
 # --------------------------------------------------------
 # Module: Monitor Agent (Tailscale + Resource + Gotify)
 # --------------------------------------------------------
+
+# 安全停止所有 Docker 容器（重啟前呼叫）
+safe_stop_docker() {
+    if ! command -v docker &>/dev/null; then
+        return
+    fi
+    local running
+    running=$(docker ps -q 2>/dev/null)
+    if [ -z "$running" ]; then
+        print_info "Docker: 无运行中的容器"
+        return
+    fi
+    local count
+    count=$(echo "$running" | wc -l)
+    print_info "检测到 $count 个运行中的 Docker 容器，正在安全停止..."
+    docker stop $running > /dev/null 2>&1
+    print_success "Docker 容器已全部停止"
+}
+
 module_monitor_run() {
     print_title "运行 Gotify 监控 Agent"
 
@@ -609,6 +628,9 @@ module_monitor_run() {
                 # 发送紧急通知
                 local emergency_msg="**紧急：服务器 ${DEVICE_NAME} 即将重启**\n\n原因：Peer ${TARGET_PEER_IP} 不可达\n时间：$(date '+%Y-%m-%d %H:%M:%S')"
                 send_gotify "紧急警报" "$emergency_msg" 10 "$GOTIFY_URL" "$GOTIFY_TOKEN"
+
+                # 安全停止 Docker 容器
+                safe_stop_docker
 
                 # 强制重启 (内核级，跳过所有进程)
                 print_info "10 秒后强制重启 (内核级)..."
@@ -941,6 +963,8 @@ module_diagnostic() {
                     print_warning "即将执行真实重启！"
                     read -rp "确认强制重启? (y/n): " confirm
                     if [[ "$confirm" == [yY] ]]; then
+                        print_info "安全停止 Docker 容器..."
+                        safe_stop_docker
                         print_info "10 秒后强制重启..."
                         sleep 10
                         reboot --force --force 2>/dev/null || reboot -ff 2>/dev/null || echo b > /proc/sysrq-trigger
@@ -976,24 +1000,22 @@ show_menu() {
     echo "-- 系统初始化 --"
     echo "  [1] 一键初始化服务器"
     echo "  [2] SSH 密钥免密部署"
-    echo "  [3] 系统信息查询"
     echo ""
     echo "-- Gotify 推送系统 --"
-    echo "  [4] 安装通知 (开机/关机)"
-    echo "  [5] 安装监控 Agent (每 2h)"
-    echo " [12] 系统诊断"
-    echo ""
-    echo "-- 网络配置 --"
-    echo " [11] 安装 Tailscale (含自动更新)"
+    echo "  [3] 安装通知 (开机/关机)"
+    echo "  [4] 安装监控 Agent (每 2h)"
     echo ""
     echo "-- 进阶设定 --"
-    echo "  [6] 禁用笔记本合盖睡眠"
-    echo "  [7] LVM 根分区扩容"
+    echo "  [5] 禁用笔记本合盖睡眠"
+    echo "  [6] LVM 根分区扩容"
     echo ""
     echo "-- 系统配置 --"
+    echo "  [7] 系统信息查询"
     echo "  [8] 修改机器名称"
     echo "  [9] 修改 Gotify URL/Token"
     echo " [10] 修改 Tailscale Peer IP"
+    echo " [11] 安装 Tailscale (含自动更新)"
+    echo " [12] 系统诊断"
     echo ""
     echo "  [0] 退出"
     echo "--------------------------------------------"
@@ -1002,16 +1024,16 @@ show_menu() {
 menu_loop() {
     while true; do
         show_menu
-        read -rp "   请输入选项编号 [0-12]: " choice
+         read -rp "   请输入选项编号 [0-12]: " choice
         echo ""
         case "$choice" in
-            1) module_init_server ;;
-            2) module_ssh_key ;;
-            3) module_sys_info ;;
-            4) module_gotify_notify ;;
-            5) module_monitor_install ;;
-            6) module_lid_sleep ;;
-            7) module_extend_lvm ;;
+            1)  module_init_server ;;
+            2)  module_ssh_key ;;
+            3)  module_gotify_notify ;;
+            4)  module_monitor_install ;;
+            5)  module_lid_sleep ;;
+            6)  module_extend_lvm ;;
+            7)  module_sys_info ;;
             8)
                 read -rp "请输入新的机器名称: " DEVICE_NAME
                 DEVICE_NAME=${DEVICE_NAME:-$(hostname)}
