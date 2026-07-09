@@ -1,4 +1,8 @@
 #!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
 # ==============================================================================
 # Project: pve-lxc-init
 # Script: deploy.sh
@@ -50,9 +54,21 @@ EOF
 
 load_env
 
-# ====================================================================
+# ==============================================================================
+#                          BOOTSTRAP FUNCTIONS
+# ==============================================================================
+validate_nonempty() {
+    local value="$1" name="$2" required="$3"
+    if [ -z "$value" ] && [ "$required" = "true" ]; then
+        print_error "$name 不能为空"
+        return 1
+    fi
+    echo "$value"
+}
+
+# ==============================================================================
 #                         MODULE FUNCTIONS
-# ====================================================================
+# ==============================================================================
 
 # ====================== Module: Init Server ======================
 module_init_server() {
@@ -73,35 +89,73 @@ module_init_server() {
             2) INSTALL_PANEL="1panel" ;;
             *) INSTALL_PANEL="none" ;;
         esac
-        read -rp "设定时区 [默认: $TARGET_TIMEZONE]: " tz_input
-        TARGET_TIMEZONE=${tz_input:-$TARGET_TIMEZONE}
-        read -rp "设定 Root 工作目录 [默认: $TARGET_ROOT_HOME]: " dir_input
-        TARGET_ROOT_HOME=${dir_input:-$TARGET_ROOT_HOME}
+
+        while true; do
+            read -rp "设定时区 [默认: $TARGET_TIMEZONE]: " tz_input
+            TARGET_TIMEZONE=${tz_input:-$TARGET_TIMEZONE}
+            if timedatectl list-timezones | grep -q "^${TARGET_TIMEZONE}$"; then
+                break
+            else
+                print_warning "$TARGET_TIMEZONE 不是有效时区，请重新输入"
+            fi
+        done
+
+        while true; do
+            read -rp "设定 Root 工作目录 [默认: $TARGET_ROOT_HOME]: " dir_input
+            TARGET_ROOT_HOME=${dir_input:-$TARGET_ROOT_HOME}
+            if [[ "$TARGET_ROOT_HOME" =~ ^/ ]]; then
+                break
+            else
+                print_warning "目录必须以斜线开头，请重新输入"
+            fi
+        done
 
         echo ""
-        read -sp "请输入 Root 新密码 [默认: 1234]: " pw1; echo
-        local ROOT_PW_INPUT=${pw1:-1234}
-        read -sp "请再次输入密码: " pw2; echo
-        if [ "$ROOT_PW_INPUT" = "$pw2" ] && [ -n "$ROOT_PW_INPUT" ]; then
-            ROOT_PW="$ROOT_PW_INPUT"
-            PASSWORD_MATCH=true
-        else
-            print_error "两次密码不一致，跳过密码设置"
-        fi
+        while true; do
+            read -sp "请输入 Root 新密码 [默认: 1234]: " pw1; echo
+            local ROOT_PW_INPUT=${pw1:-1234}
+            if [ -z "$ROOT_PW_INPUT" ]; then
+                print_warning "密码不能为空"
+                continue
+            fi
+            read -sp "请再次输入密码: " pw2; echo
+            if [ "$ROOT_PW_INPUT" = "$pw2" ]; then
+                ROOT_PW="$ROOT_PW_INPUT"
+                PASSWORD_MATCH=true
+                break
+            else
+                print_error "两次密码不一致，请重新输入"
+            fi
+        done
 
-        # Gotify 配置（一次問完，一次裝完）
+        # Gotify 配置（一次问完，一次装完）
         echo ""
         print_separator
         echo "--- Gotify 推送配置 (可选，可跳过) ---"
-        read -rp "是否配置 Gotify? (y/n, 默认 n): " gotify_yn
-        if [[ "$gotify_yn" == [yY] ]]; then
-            read -rp "请输入 Gotify URL (如 https://gotify.example.com): " GOTIFY_URL
-            read -rp "请输入 Gotify Token: " GOTIFY_TOKEN
-            if [ -n "$GOTIFY_URL" ] && [ -n "$GOTIFY_TOKEN" ]; then
-                INSTALL_GOTIFY=true
-                save_env
+        while true; do
+            read -rp "是否配置 Gotify? (y/n, 默认 n): " gotify_yn
+            gotify_yn=${gotify_yn:-n}
+            if [[ "$gotify_yn" == [yY] ]]; then
+                while true; do
+                    read -rp "请输入 Gotify API 端点 (如 https://gotify.example.com): " gotify_url_input
+                    read -rp "请输入 Gotify Token: " gotify_token_input
+                    if [ -n "$gotify_url_input" ] && [ -n "$gotify_token_input" ]; then
+                        GOTIFY_URL="$gotify_url_input"
+                        GOTIFY_TOKEN="$gotify_token_input"
+                        INSTALL_GOTIFY=true
+                        save_env
+                        break
+                    else
+                        print_error "Gotify URL 和 Token 都不能为空，请重新输入"
+                    fi
+                done
+                break
+            elif [[ "$gotify_yn" == [nN] ]]; then
+                break
+            else
+                print_error "请输入 y 或 n"
             fi
-        fi
+        done
 
         # 确认摘要
         echo ""
@@ -114,9 +168,16 @@ module_init_server() {
         echo "  Root 密码: $($PASSWORD_MATCH && echo "已设置" || echo "跳过")"
         echo "  Gotify 推送: $($INSTALL_GOTIFY && echo "已配置 (通知 + 定时监控)" || echo "跳过")"
         echo "============================="
-        read -rp "确认执行以上操作? (y/n, 默认 y): " confirm
-        confirm=${confirm:-y}
-        if [[ "$confirm" != [yY] ]]; then
+        while true; do
+            read -rp "确认执行以上操作? (y/n, 默认 y): " confirm
+            confirm=${confirm:-y}
+            if [[ "$confirm" == [yY] ]] || [[ "$confirm" == [nN] ]]; then
+                break
+            else
+                print_error "请输入 y 或 n"
+            fi
+        done
+        if [[ "$confirm" == [nN] ]]; then
             print_info "已取消"
             exit 0
         fi
@@ -129,32 +190,52 @@ module_init_server() {
     check_root
 
     print_info "正在更新系统软件包..."
-    apt update && apt upgrade -y
-    check_command "系统更新失败" "系统已更新至最新"
+    if ! apt update && ! apt upgrade -y; then
+        print_error "系统更新失败"
+        exit 1
+    fi
+    print_success "系统已更新至最新"
 
     print_info "正在安装基础工具包..."
-    apt install -y curl wget nano tree screen tmux traceroute htop sshpass openssl jq iputils-ping lvm2 xfsprogs lsb-release
-    check_command "工具安装失败" "基础工具包已就绪"
+    if ! apt install -y curl wget nano tree screen tmux traceroute htop sshpass openssl jq iputils-ping lvm2 xfsprogs lsb-release; then
+        print_error "工具安装失败"
+        exit 1
+    fi
+    print_success "基础工具包已就绪"
 
     print_info "正在同步时区: $TARGET_TIMEZONE..."
-    timedatectl set-timezone "$TARGET_TIMEZONE"
-    check_command "时区设置失败" "时区已设为 $TARGET_TIMEZONE"
+    if ! timedatectl set-timezone "$TARGET_TIMEZONE"; then
+        print_error "时区设置失败"
+        exit 1
+    fi
+    print_success "时区已设为 $TARGET_TIMEZONE"
 
     print_info "正在配置 SSH 服务..."
-    apt install -y openssh-server openssh-client
-    systemctl enable --now ssh
+    if ! apt install -y openssh-server openssh-client; then
+        print_error "SSH 服务安装失败"
+        exit 1
+    fi
+    if ! systemctl enable --now ssh; then
+        print_error "SSH 服务启动失败"
+        exit 1
+    fi
     local ssh_cfg="/etc/ssh/sshd_config"
     if [ -f "$ssh_cfg" ]; then
         backup_file "$ssh_cfg"
-        ensure_config "PermitRootLogin" "PermitRootLogin yes" "$ssh_cfg"
-        ensure_config "PasswordAuthentication" "PasswordAuthentication yes" "$ssh_cfg"
-        systemctl restart ssh
+        if ! ensure_config "PermitRootLogin" "PermitRootLogin yes" "$ssh_cfg" || ! ensure_config "PasswordAuthentication" "PasswordAuthentication yes" "$ssh_cfg"; then
+            print_error "SSH 配置更新失败"
+            exit 1
+        fi
+        if ! systemctl restart ssh; then
+            print_error "SSH 服务重启失败"
+            exit 1
+        fi
         print_success "SSH 配置已更新 (root 登录 + 密码认证)"
     fi
 
     if $PASSWORD_MATCH; then
         echo "root:$ROOT_PW" | chpasswd
-        check_command "密码设置失败" "Root 密码已更新"
+        print_success "Root 密码已更新"
     fi
 
     print_info "正在扩容历史记录..."
@@ -164,24 +245,32 @@ module_init_server() {
 
     if [ "$INSTALL_PANEL" = "casaos" ]; then
         print_info "正在安装 CasaOS..."
-        curl -fsSL https://get.casaos.io | bash
-        check_command "CasaOS 安装失败" "CasaOS 安装完成"
+        if ! curl -fsSL https://get.casaos.io | bash; then
+            print_error "CasaOS 安装失败"
+            exit 1
+        fi
+        print_success "CasaOS 安装完成"
     elif [ "$INSTALL_PANEL" = "1panel" ]; then
         print_info "正在安装 1Panel..."
-        bash -c "$(curl -sSL https://resource.fit2cloud.com/1panel/package/v2/quick_start.sh)"
-        check_command "1Panel 安装失败" "1Panel 安装完成"
+        if ! bash -c "$(curl -sSL https://resource.fit2cloud.com/1panel/package/v2/quick_start.sh)"; then
+            print_error "1Panel 安装失败"
+            exit 1
+        fi
+        print_success "1Panel 安装完成"
     fi
 
     mkdir -p "$TARGET_ROOT_HOME"
     print_success "工作目录已就绪: $TARGET_ROOT_HOME"
 
     print_info "正在清理系统缓存..."
-    apt clean && apt autoremove --purge -y
+    if ! apt clean || ! apt autoremove --purge -y; then
+        print_warning "清理系统缓存失败，继续"
+    fi
     rm -rf /var/cache/apt/archives/* /tmp/*
 
     print_success "系统初始化完成"
 
-    # ========== Gotify 后置安装（合併通知 + 定時監控）==========
+    # ========== Gotify 后置安装（合并通知 + 定时监控）==========
     local gotify_was_installed=false
     if [ -n "$GOTIFY_URL" ] && [ -n "$GOTIFY_TOKEN" ] && $INSTALL_GOTIFY; then
         module_install_gotify
@@ -206,7 +295,9 @@ module_init_server() {
 - 服务器: \`$DEVICE_NAME\`\n\
 - 时间: $(date '+%Y-%m-%d %H:%M:%S')\n\
 - 状态: 初始化成功，通知与监控系统运行正常"
-        send_gotify "✅ 初始化完成 - $DEVICE_NAME" "$test_report_msg" 5 "$GOTIFY_URL" "$GOTIFY_TOKEN"
+        if ! send_gotify "✅ 初始化完成 - $DEVICE_NAME" "$test_report_msg" 5 "$GOTIFY_URL" "$GOTIFY_TOKEN"; then
+            print_error "Gotify 验证推送失败"
+        fi
         echo ""
         print_info "首次监控已执行，之后每 2 小时整点自动推送"
     fi
@@ -218,31 +309,65 @@ module_init_server() {
 module_ssh_key() {
     print_title "SSH 密钥免密部署"
 
-    read -rp "请输入远程服务器 IP/域名 [默认: 127.0.0.1]: " REMOTE_HOST
-    REMOTE_HOST=${REMOTE_HOST:-127.0.0.1}
-    read -rp "请输入远程登录用户名 [默认: root]: " REMOTE_USER
-    REMOTE_USER=${REMOTE_USER:-root}
-    read -rp "请输入远程 SSH 端口 [默认: 22]: " REMOTE_PORT
-    REMOTE_PORT=${REMOTE_PORT:-22}
+    # 远程服务器 IP/域名验证
+    while true; do
+        read -rp "请输入远程服务器 IP/域名 [默认: 127.0.0.1]: " REMOTE_HOST
+        REMOTE_HOST=${REMOTE_HOST:-127.0.0.1}
+        # 简单验证格式
+        if [[ "$REMOTE_HOST" =~ ^[a-zA-Z0-9\-\.]+$ ]]; then
+            break
+        else
+            print_error "IP/域名格式不正确，请重新输入"
+        fi
+    done
+
+    # 远程用户名验证
+    while true; do
+        read -rp "请输入远程登录用户名 [默认: root]: " REMOTE_USER
+        REMOTE_USER=${REMOTE_USER:-root}
+        if [[ "$REMOTE_USER" =~ ^[a-zA-Z0-9_]+$ ]]; then
+            break
+        else
+            print_error "用户名只能包含字母、数字或下划线"
+        fi
+    done
+
+    # 端口验证
+    while true; do
+        read -rp "请输入远程 SSH 端口 [默认: 22]: " REMOTE_PORT
+        REMOTE_PORT=${REMOTE_PORT:-22}
+        if [[ "$REMOTE_PORT" =~ ^[0-9]+$ ]] && ((REMOTE_PORT >= 1 && REMOTE_PORT <= 65535)); then
+            break
+        else
+            print_error "端口必须是 1-65535 之间的数字"
+        fi
+    done
 
     local key_file="$HOME/.ssh/id_rsa"
     if [ ! -f "$key_file" ]; then
         print_info "未检测到密钥对，正在生成 4096 位 RSA 密钥..."
-        ssh-keygen -t rsa -b 4096 -f "$key_file" -N ""
-        check_command "密钥生成失败" "密钥对已生成"
+        if ! ssh-keygen -t rsa -b 4096 -f "$key_file" -N ""; then
+            print_error "密钥生成失败"
+            exit 1
+        fi
+        print_success "密钥对已生成"
     else
         print_success "检测到现有密钥对，跳过生成"
     fi
 
     print_info "正在推送公钥至 ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_PORT}..."
-    ssh-copy-id -i "$key_file.pub" -p "$REMOTE_PORT" "${REMOTE_USER}@${REMOTE_HOST}"
-    check_command "公钥推送失败，请检查网络或密码" "公钥已推送"
+    if ! ssh-copy-id -i "$key_file.pub" -p "$REMOTE_PORT" "${REMOTE_USER}@${REMOTE_HOST}"; then
+        print_error "公钥推送失败，请检查网络或密码"
+        exit 1
+    fi
+    print_success "公钥已推送"
 
     print_info "正在验证免密登录..."
     if ssh -o BatchMode=yes -o ConnectTimeout=5 -p "$REMOTE_PORT" "${REMOTE_USER}@${REMOTE_HOST}" "id" > /dev/null 2>&1; then
         print_success "免密登录验证通过"
     else
         print_error "免密登录验证失败"
+        exit 1
     fi
 }
 
@@ -251,11 +376,23 @@ module_install_gotify() {
     print_title "安装 Gotify 推送 (通知 + 定时监控)"
 
     if [ -z "$GOTIFY_URL" ] || [ -z "$GOTIFY_TOKEN" ]; then
-        read -rp "请输入 Gotify API 端点 (如 https://gotify.example.com): " GOTIFY_URL
-        read -rp "请输入 Gotify Token: " GOTIFY_TOKEN
+        while true; do
+            read -rp "请输入 Gotify API 端点 (如 https://gotify.example.com): " INPUT_URL
+            read -rp "请输入 Gotify Token: " INPUT_TOKEN
+            if [ -n "$INPUT_URL" ] && [ -n "$INPUT_TOKEN" ]; then
+                GOTIFY_URL="$INPUT_URL"
+                GOTIFY_TOKEN="$INPUT_TOKEN"
+                break
+            else
+                print_error "Gotify URL 和 Token 都不能为空"
+            fi
+        done
+        save_env
     fi
-    if [ -z "$GOTIFY_URL" ] || [ -z "$GOTIFY_TOKEN" ]; then
-        print_error "Gotify URL 和 Token 为必填项"
+
+    # URL/Token 格式验证
+    if [[ ! "$GOTIFY_URL" =~ ^(https?://)?([a-zA-Z0-9\-\.]+)(:\d+)?(/.*)?$ ]]; then
+        print_error "无效的 Gotify URL 格式: $GOTIFY_URL"
         exit 1
     fi
 
@@ -264,15 +401,22 @@ module_install_gotify() {
     # -------- 1. 开机通知 --------
     local startup_script="/opt/gotify_startup.sh"
     local startup_svc="/etc/systemd/system/gotify-startup.service"
-    cat > "$startup_script" <<EOF
+    if ! cat > "$startup_script" <<EOF
 #!/bin/bash
-curl -s -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
+curl -s -m 10 -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
     -F "title=服务器状态：已上线" \
     -F "message=服务器 [ ${DEVICE_NAME} ] 已成功启动并联网。" \
     -F "priority=5"
 EOF
-    chmod +x "$startup_script"
-    cat > "$startup_svc" <<EOF
+    then
+        print_error "启动通知脚本创建失败"
+        exit 1
+    fi
+    if ! chmod +x "$startup_script"; then
+        print_error "启动通知脚本权限设置失败"
+        exit 1
+    fi
+    if ! cat > "$startup_svc" <<EOF
 [Unit]
 Description=Gotify Startup Notification for ${DEVICE_NAME}
 After=network.target
@@ -285,22 +429,39 @@ RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
 EOF
-    systemctl daemon-reload
-    systemctl enable gotify-startup.service
+    then
+        print_error "启动通知 systemd 服务创建失败"
+        exit 1
+    fi
+    if ! systemctl daemon-reload; then
+        print_error "系统服务缓存更新失败"
+        exit 1
+    fi
+    if ! systemctl enable gotify-startup.service; then
+        print_error "启动通知服务启用失败"
+        exit 1
+    fi
     print_success "开机通知已激活"
 
     # -------- 2. 关机通知 --------
     local shutdown_script="/opt/gotify_shutdown.sh"
     local shutdown_svc="/etc/systemd/system/gotify-shutdown.service"
-    cat > "$shutdown_script" <<EOF
+    if ! cat > "$shutdown_script" <<EOF
 #!/bin/bash
-curl -s -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
+curl -s -m 10 -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
     -F "title=服务器状态：离线通知" \
     -F "message=警告：服务器 [ ${DEVICE_NAME} ] 正在执行关机/重启操作。" \
     -F "priority=7"
 EOF
-    chmod +x "$shutdown_script"
-    cat > "$shutdown_svc" <<EOF
+    then
+        print_error "关机通知脚本创建失败"
+        exit 1
+    fi
+    if ! chmod +x "$shutdown_script"; then
+        print_error "关机通知脚本权限设置失败"
+        exit 1
+    fi
+    if ! cat > "$shutdown_svc" <<EOF
 [Unit]
 Description=Gotify Shutdown Notification for ${DEVICE_NAME}
 DefaultDependencies=no
@@ -315,14 +476,24 @@ RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
 EOF
-    systemctl daemon-reload
-    systemctl enable gotify-shutdown.service
+    then
+        print_error "关机通知 systemd 服务创建失败"
+        exit 1
+    fi
+    if ! systemctl daemon-reload; then
+        print_error "系统服务缓存更新失败"
+        exit 1
+    fi
+    if ! systemctl enable gotify-shutdown.service; then
+        print_error "关机通知服务启用失败"
+        exit 1
+    fi
     print_success "关机通知已激活"
 
     # -------- 3. 定时监控 (纯系统指标，不含 Tailscale/Peer) --------
     local service_path="/etc/systemd/system/gotify-report.service"
     local timer_path="/etc/systemd/system/gotify-report.timer"
-    cat > "$service_path" <<UNIT
+    if ! cat > "$service_path" <<SERVICE
 [Unit]
 Description=Gotify System Report for ${DEVICE_NAME}
 After=network.target
@@ -333,9 +504,13 @@ ExecStart=${SCRIPT_DIR}/deploy.sh --gotify-report \\
     --Device "${DEVICE_NAME}" \\
     --GotifyUrl "${GOTIFY_URL}" \\
     --GotifyToken "${GOTIFY_TOKEN}"
-UNIT
+SERVICE
+    then
+        print_error "系统报告服务创建失败"
+        exit 1
+    fi
 
-    cat > "$timer_path" <<TIMER
+    if ! cat > "$timer_path" <<TIMER
 [Unit]
 Description=Run Gotify System Report every 2 hours (on the hour)
 
@@ -346,24 +521,38 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 TIMER
+    then
+        print_error "系统报告定时器创建失败"
+        exit 1
+    fi
 
-    systemctl daemon-reload
-    systemctl enable --now gotify-report.timer
-    check_command "定时器注册失败" "定时监控已注册，每 2 小时执行一次"
+    if ! systemctl daemon-reload; then
+        print_error "系统服务缓存更新失败"
+        exit 1
+    fi
+
+    if ! systemctl enable --now gotify-report.timer; then
+        print_error "系统报告定时器注册失败"
+        exit 1
+    fi
+    print_success_with_log "定时监控已注册，每 2 小时执行一次"
 
     # 立即执行首轮
     print_info "首次运行系统监控..."
-    systemctl start gotify-report.service
+    if ! systemctl start gotify-report.service; then
+        print_error "首次运行系统监控服务启动失败"
+        exit 1
+    fi
     sleep 2
     print_success "首次监控已触发，下次将在整点推送"
     echo ""
     print_info "定时器排程:"
-    systemctl list-timers | grep gotify-report || true
+    systemctl list-timers | grep gotify-report || print_info "无计时器信息"
 
     print_success "Gotify 推送安装完成"
-    print_info "已启用: 开机通知 (gotify-startup.service)"
-    print_info "已启用: 关机预警 (gotify-shutdown.service)"
-    print_info "已启用: 定时监控 (gotify-report.timer, 每 2h 整点)"
+    print_success_with_log "已启用: 开机通知 (gotify-startup.service)"
+    print_success_with_log "已启用: 关机预警 (gotify-shutdown.service)"
+    print_success_with_log "已启用: 定时监控 (gotify-report.timer, 每 2h 整点)"
 }
 
 # ====================== Module: Gotify System Report (纯指标，无 Peer) ======================
@@ -973,11 +1162,35 @@ show_menu() {
     echo "--------------------------------------------"
 }
 
+validate_menu_input() {
+    local max_choice=$1
+    local choice="$2"
+
+    if [[ "$choice" =~ ^[0-9]+$ ]]; then
+        if (( choice > max_choice )) || (( choice < 0 )); then
+            print_error "无效选项，请输入 0-$max_choice"
+            return 1
+        fi
+        echo "$choice"
+        return 0
+    else
+        print_error "请输入数字"
+        return 1
+    fi
+}
+
 menu_loop() {
     while true; do
         show_menu
         read -rp "   请输入选项编号 [0-12]: " choice
         echo ""
+
+        if ! [[ "$choice" =~ ^[0-9]+$ ]]; then
+            print_error "请输入数字"
+            sleep 1
+            continue
+        fi
+
         case "$choice" in
             1)  module_init_server ;;
             2)  module_install_gotify ;;
@@ -1012,13 +1225,17 @@ menu_loop() {
             10)
                 read -rp "请输入 Gotify URL (如 https://gotify.example.com): " GOTIFY_URL
                 read -rp "请输入 Gotify Token: " GOTIFY_TOKEN
-                save_env
-                print_success "Gotify 配置已更新"
+                if [ -n "$GOTIFY_URL" ]; then
+                    save_env
+                    print_success "Gotify 配置已更新"
+                fi
                 ;;
             11)
                 read -rp "请输入 Peer IP: " TARGET_PEER_IP
-                save_env
-                print_success "Peer IP 已更新为: $TARGET_PEER_IP"
+                if [ -n "$TARGET_PEER_IP" ]; then
+                    save_env
+                    print_success "Peer IP 已更新为: $TARGET_PEER_IP"
+                fi
                 ;;
             12) module_diagnostic ;;
             0)

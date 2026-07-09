@@ -1,4 +1,8 @@
 #!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
 # ==============================================================================
 # Project: pve-lxc-init
 # Module: include/common.sh
@@ -18,8 +22,33 @@ print_separator() { echo "------------------------------------------------"; }
 
 # ---------------------------- Validation ----------------------------
 check_command() {
-    if [ $? -ne 0 ]; then print_error "$1"; exit 1
-    else print_success "$2"; fi
+    local rc=$?
+    if [ $rc -ne 0 ]; then
+        print_error "$1"
+        exit $rc
+    else
+        print_success "$2"
+    fi
+}
+
+# ---------------------------- Logging ----------------------------
+LOG_FILE="$SCRIPT_DIR/report_error.log"
+write_log() {
+    if command -v logger &>/dev/null; then
+        logger -t "pve-lxc-init" "$1"
+    else
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE" 2>/dev/null || true
+    fi
+}
+
+print_success_with_log() {
+    print_success "$1"
+    write_log "SUCCESS: $1"
+}
+
+print_error_with_log() {
+    print_error "$1"
+    write_log "ERROR: $1"
 }
 
 check_root() {
@@ -59,11 +88,20 @@ backup_file() {
     echo "$backup_path"
 }
 
-# ---------------------------- Gotify Sender (JSON) ----------------------------
+# ---------------------------- Gotify Sender (JSON或form-data) ----------------------------
 send_gotify() {
     local title="$1" message="$2" priority="$3"
     local gotify_url="$4" gotify_token="$5"
     local payload
+
+    # 验证 URL 格式
+    if [[ ! "$gotify_url" =~ ^(https?://)?([a-zA-Z0-9\-\.]+)(:\d+)?(/.*)?$ ]]; then
+        print_error "Invalid Gotify URL format: $gotify_url"
+        return 1
+    fi
+    if [[ "$gotify_url" == */ ]]; then
+        gotify_url="${gotify_url%/}"
+    fi
 
     payload=$(jq -n \
         --arg title "$title" \
@@ -72,19 +110,27 @@ send_gotify() {
         '{title: $title, message: $msg, priority: $priority,
           extras: {"client::display": {"contentType": "text/markdown"}}}' 2>/dev/null)
 
-    if [ -z "$payload" ]; then
-        print_error "JSON 封裝失敗，請確認 jq 是否已安裝"
-        return 1
+    if [ -n "$payload" ]; then
+        if curl -s -m 10 -X POST "${gotify_url}/message?token=${gotify_token}" \
+            -H "Content-Type: application/json" \
+            -d "$payload" > /dev/null 2>&1; then
+            print_success "Gotify 推送成功: $title"
+            return 0
+        else
+            print_error "Gotify JSON 推送失敗，回退到 form-data"
+        fi
     fi
 
-    curl -s -X POST "${gotify_url}/message?token=${gotify_token}" \
-        -H "Content-Type: application/json" \
-        -d "$payload" > /dev/null 2>&1
+    curl -s -m 10 -X POST "${gotify_url}/message?token=${gotify_token}" \
+        -F "title=${title}" \
+        -F "message=${message}" \
+        -F "priority=${priority}" > /dev/null 2>&1
 
     if [ $? -eq 0 ]; then
-        print_success "Gotify 推送成功: $title"
+        print_success "Gotify 推送成功 (form-data): $title"
+        return 0
     else
-        print_error "Gotify 推送失敗"
+        print_error "Gotify 推送失敗 (JSON/form-data 皆失敗)"
         return 1
     fi
 }
