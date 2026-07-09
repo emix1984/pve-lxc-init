@@ -803,6 +803,28 @@ module_install_tailscale() {
     fi
 }
 
+# ====================== Module: Test Gotify Push ======================
+module_test_gotify() {
+    print_title "Gotify 推送测试"
+
+    if [ -z "$GOTIFY_URL" ] || [ -z "$GOTIFY_TOKEN" ]; then
+        print_error "请先设定 Gotify URL 和 Token（选单选项 [9]）"
+        return
+    fi
+
+    print_info "正在向 $GOTIFY_URL 发送测试通知..."
+    echo ""
+
+    local test_msg
+    test_msg="**Gotify 推送测试**\n\n\
+- 服务器: \`$DEVICE_NAME\`\n\
+- 时间: $(date '+%Y-%m-%d %H:%M:%S')\n\
+- 状态: ✅ 推送正常\n\n\
+*若收到本条消息，说明 Gotify 配置正确*"
+
+    send_gotify "🧪 测试通知 - $DEVICE_NAME" "$test_msg" 5 "$GOTIFY_URL" "$GOTIFY_TOKEN"
+}
+
 # --------------------------------------------------------
 #                        MENU
 # --------------------------------------------------------
@@ -834,6 +856,7 @@ show_menu() {
     echo "║   ┌── Gotify 推送系统 ────────────────┐    ║"
     echo "║   │  [4] 安装通知 (开机/关机)         │    ║"
     echo "║   │  [5] 安装监控 Agent (每 2h)      │    ║"
+    echo "║   │ [12] 测试推送                    │    ║"
     echo "║   └────────────────────────────────────┘    ║"
     echo "║                                              ║"
     echo "║   ┌── 网络配置 ───────────────────────┐    ║"
@@ -861,7 +884,7 @@ show_menu() {
 menu_loop() {
     while true; do
         show_menu
-        read -rp "   请输入选项编号 [0-11]: " choice
+        read -rp "   请输入选项编号 [0-12]: " choice
         echo ""
         case "$choice" in
             1) module_init_server ;;
@@ -904,6 +927,7 @@ menu_loop() {
                 print_success "Peer IP 已更新为: $TARGET_PEER_IP"
                 ;;
             11) module_install_tailscale ;;
+            12) module_test_gotify ;;
             0)
                 print_info "感谢使用，再见"
                 exit 0
