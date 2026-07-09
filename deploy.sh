@@ -4,16 +4,6 @@
 # Script: deploy.sh
 # Description: Unified deployment & management tool for PVE LXC (Debian/Ubuntu).
 #              Interactive menu (TTY) + CLI flags (non-interactive) + systemd mode.
-# Usage:
-#   ./deploy.sh              -> Interactive menu
-#   ./deploy.sh --init       -> Server initialization (non-interactive)
-#   ./deploy.sh --ssh-key    -> SSH key deployment
-#   ./deploy.sh --sys-info   -> System info query
-#   ./deploy.sh --gotify     -> Install boot/shutdown notifications
-#   ./deploy.sh --lid-sleep  -> Disable laptop lid sleep
-#   ./deploy.sh --extend-lvm -> Extend LVM root partition
-#   ./deploy.sh --monitor    -> Run monitoring agent once
-#   ./deploy.sh --monitor-install -> Register 2h monitoring timer
 # ==============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -35,7 +25,6 @@ TARGET_PEER_IP="${TARGET_PEER_IP:-100.114.252.115}"
 TARGET_TIMEZONE="${TARGET_TIMEZONE:-Asia/Seoul}"
 TARGET_ROOT_HOME="${TARGET_ROOT_HOME:-/DATA/AppData}"
 INSTALL_PANEL="${INSTALL_PANEL:-none}"
-MONITOR_SCRIPT_PATH="/opt/gotify-monitor.sh"
 
 load_env() {
     if [ -f "$ENV_FILE" ]; then
@@ -61,16 +50,15 @@ EOF
 
 load_env
 
-# -------------------------------------------------------------------
+# ====================================================================
 #                         MODULE FUNCTIONS
-# -------------------------------------------------------------------
+# ====================================================================
 
 # ====================== Module: Init Server ======================
 module_init_server() {
     print_title "一键初始化服务器"
 
-    local INSTALL_GOTIFY_NOTIFY=false
-    local INSTALL_GOTIFY_MONITOR=false
+    local INSTALL_GOTIFY=false
     local PASSWORD_MATCH=false
 
     # ========== 交互收集阶段 ==========
@@ -90,7 +78,6 @@ module_init_server() {
         read -rp "设定 Root 工作目录 [默认: $TARGET_ROOT_HOME]: " dir_input
         TARGET_ROOT_HOME=${dir_input:-$TARGET_ROOT_HOME}
 
-        # Root 密码
         echo ""
         read -sp "请输入 Root 新密码 [默认: 1234]: " pw1; echo
         local ROOT_PW_INPUT=${pw1:-1234}
@@ -102,7 +89,7 @@ module_init_server() {
             print_error "两次密码不一致，跳过密码设置"
         fi
 
-        # Gotify 配置
+        # Gotify 配置（一次問完，一次裝完）
         echo ""
         print_separator
         echo "--- Gotify 推送配置 (可选，可跳过) ---"
@@ -111,14 +98,7 @@ module_init_server() {
             read -rp "请输入 Gotify URL (如 https://gotify.example.com): " GOTIFY_URL
             read -rp "请输入 Gotify Token: " GOTIFY_TOKEN
             if [ -n "$GOTIFY_URL" ] && [ -n "$GOTIFY_TOKEN" ]; then
-                read -rp "安装开机/关机通知? (y/n, 默认 y): " yn_notify
-                [[ "$yn_notify" != [nN] ]] && INSTALL_GOTIFY_NOTIFY=true
-                read -rp "安装监控 Agent (每 2h 推送)? (y/n, 默认 y): " yn_mon
-                if [[ "$yn_mon" != [nN] ]]; then
-                    INSTALL_GOTIFY_MONITOR=true
-                    read -rp "Tailscale Peer IP [默认: $TARGET_PEER_IP]: " peer_input
-                    TARGET_PEER_IP=${peer_input:-$TARGET_PEER_IP}
-                fi
+                INSTALL_GOTIFY=true
                 save_env
             fi
         fi
@@ -127,31 +107,12 @@ module_init_server() {
         echo ""
         print_separator
         echo "========== 执行确认 =========="
-        if [ "$INSTALL_PANEL" = "none" ]; then
-            echo "  面板安装: 不安装"
-        else
-            echo "  面板安装: $INSTALL_PANEL"
-        fi
+        if [ "$INSTALL_PANEL" = "none" ]; then echo "  面板安装: 不安装"
+        else echo "  面板安装: $INSTALL_PANEL"; fi
         echo "  时区: $TARGET_TIMEZONE"
         echo "  工作目录: $TARGET_ROOT_HOME"
-        if $PASSWORD_MATCH; then
-            echo "  Root 密码: 已设置"
-        else
-            echo "  Root 密码: 跳过"
-        fi
-        if [ -n "$GOTIFY_URL" ]; then
-            echo "  Gotify URL: $GOTIFY_URL"
-            if $INSTALL_GOTIFY_NOTIFY; then
-                echo "  开机/关机通知: 安装"
-            else
-                echo "  开机/关机通知: 跳过"
-            fi
-            if $INSTALL_GOTIFY_MONITOR; then
-                echo "  监控 Agent (每 2h): 安装"
-            else
-                echo "  监控 Agent (每 2h): 跳过"
-            fi
-        fi
+        echo "  Root 密码: $($PASSWORD_MATCH && echo "已设置" || echo "跳过")"
+        echo "  Gotify 推送: $($INSTALL_GOTIFY && echo "已配置 (通知 + 定时监控)" || echo "跳过")"
         echo "============================="
         read -rp "确认执行以上操作? (y/n, 默认 y): " confirm
         confirm=${confirm:-y}
@@ -220,18 +181,11 @@ module_init_server() {
 
     print_success "系统初始化完成"
 
-    # ========== Gotify 后置安装 ==========
+    # ========== Gotify 后置安装（合併通知 + 定時監控）==========
     local gotify_was_installed=false
-    local monitor_was_installed=false
-    if [ -n "$GOTIFY_URL" ] && [ -n "$GOTIFY_TOKEN" ]; then
-        if $INSTALL_GOTIFY_NOTIFY; then
-            module_gotify_notify
-            gotify_was_installed=true
-        fi
-        if $INSTALL_GOTIFY_MONITOR; then
-            module_monitor_install
-            monitor_was_installed=true
-        fi
+    if [ -n "$GOTIFY_URL" ] && [ -n "$GOTIFY_TOKEN" ] && $INSTALL_GOTIFY; then
+        module_install_gotify
+        gotify_was_installed=true
     fi
 
     # ========== 执行报告 ==========
@@ -241,11 +195,9 @@ module_init_server() {
     echo "  系统初始化:         ✅ 完成"
     echo "  面板安装:           $([ "$INSTALL_PANEL" = "none" ] && echo "跳过" || echo "$INSTALL_PANEL ✅")"
     echo "  Root 密码:          $($PASSWORD_MATCH && echo "已设置 ✅" || echo "跳过")"
-    echo "  开机/关机通知:      $($gotify_was_installed && echo "已安装 ✅" || echo "跳过")"
-    echo "  监控 Agent:         $($monitor_was_installed && echo "已安装 ✅" || echo "跳过")"
+    echo "  Gotify 推送:        $($gotify_was_installed && echo "已安装 (通知 + 定时监控) ✅" || echo "跳过")"
     echo "=============================================================="
 
-    # 测试 Gotify 推送
     if $gotify_was_installed; then
         echo ""
         print_info "验证 Gotify 推送..."
@@ -253,25 +205,8 @@ module_init_server() {
         test_report_msg="**✅ 服务器初始化完成**\n\n\
 - 服务器: \`$DEVICE_NAME\`\n\
 - 时间: $(date '+%Y-%m-%d %H:%M:%S')\n\
-- 状态: 初始化成功，通知系统运行正常"
+- 状态: 初始化成功，通知与监控系统运行正常"
         send_gotify "✅ 初始化完成 - $DEVICE_NAME" "$test_report_msg" 5 "$GOTIFY_URL" "$GOTIFY_TOKEN"
-        echo ""
-    fi
-
-    # 测试监控连通性
-    if $monitor_was_installed; then
-        echo ""
-        print_info "验证监控 Agent 连通性..."
-        if command -v tailscale &>/dev/null && [ -n "$TARGET_PEER_IP" ]; then
-            if ping -c 2 -W 3 "$TARGET_PEER_IP" &>/dev/null; then
-                print_success "Peer $TARGET_PEER_IP 连通正常"
-            else
-                print_warning "Peer $TARGET_PEER_IP 不可达"
-                print_info "监控 Agent 将在下次定时任务中尝试恢复或触发紧急流程"
-            fi
-        else
-            print_info "Tailscale 未安装或无 Peer IP，跳过连通性验证"
-        fi
         echo ""
         print_info "首次监控已执行，之后每 2 小时整点自动推送"
     fi
@@ -303,7 +238,6 @@ module_ssh_key() {
     ssh-copy-id -i "$key_file.pub" -p "$REMOTE_PORT" "${REMOTE_USER}@${REMOTE_HOST}"
     check_command "公钥推送失败，请检查网络或密码" "公钥已推送"
 
-    # 验证
     print_info "正在验证免密登录..."
     if ssh -o BatchMode=yes -o ConnectTimeout=5 -p "$REMOTE_PORT" "${REMOTE_USER}@${REMOTE_HOST}" "id" > /dev/null 2>&1; then
         print_success "免密登录验证通过"
@@ -312,9 +246,9 @@ module_ssh_key() {
     fi
 }
 
-# ====================== Module: Gotify Notifications ======================
-module_gotify_notify() {
-    print_title "安装 Gotify 通知系统 (开机/关机通知)"
+# ====================== Module: Install Gotify (通知 + 定时监控) ======================
+module_install_gotify() {
+    print_title "安装 Gotify 推送 (通知 + 定时监控)"
 
     if [ -z "$GOTIFY_URL" ] || [ -z "$GOTIFY_TOKEN" ]; then
         read -rp "请输入 Gotify API 端点 (如 https://gotify.example.com): " GOTIFY_URL
@@ -327,10 +261,9 @@ module_gotify_notify() {
 
     check_root
 
-    # 1. 开机通知
+    # -------- 1. 开机通知 --------
     local startup_script="/opt/gotify_startup.sh"
     local startup_svc="/etc/systemd/system/gotify-startup.service"
-
     cat > "$startup_script" <<EOF
 #!/bin/bash
 curl -s -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
@@ -339,7 +272,6 @@ curl -s -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
     -F "priority=5"
 EOF
     chmod +x "$startup_script"
-
     cat > "$startup_svc" <<EOF
 [Unit]
 Description=Gotify Startup Notification for ${DEVICE_NAME}
@@ -353,15 +285,13 @@ RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
 EOF
-
     systemctl daemon-reload
     systemctl enable gotify-startup.service
     print_success "开机通知已激活"
 
-    # 2. 关机通知
+    # -------- 2. 关机通知 --------
     local shutdown_script="/opt/gotify_shutdown.sh"
     local shutdown_svc="/etc/systemd/system/gotify-shutdown.service"
-
     cat > "$shutdown_script" <<EOF
 #!/bin/bash
 curl -s -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
@@ -370,7 +300,6 @@ curl -s -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
     -F "priority=7"
 EOF
     chmod +x "$shutdown_script"
-
     cat > "$shutdown_svc" <<EOF
 [Unit]
 Description=Gotify Shutdown Notification for ${DEVICE_NAME}
@@ -386,23 +315,158 @@ RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
 EOF
-
     systemctl daemon-reload
     systemctl enable gotify-shutdown.service
     print_success "关机通知已激活"
 
-    print_success "Gotify 通知系统安装完成"
+    # -------- 3. 定时监控 (纯系统指标，不含 Tailscale/Peer) --------
+    local service_path="/etc/systemd/system/gotify-report.service"
+    local timer_path="/etc/systemd/system/gotify-report.timer"
+    cat > "$service_path" <<UNIT
+[Unit]
+Description=Gotify System Report for ${DEVICE_NAME}
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=${SCRIPT_DIR}/deploy.sh --gotify-report \\
+    --Device "${DEVICE_NAME}" \\
+    --GotifyUrl "${GOTIFY_URL}" \\
+    --GotifyToken "${GOTIFY_TOKEN}"
+UNIT
+
+    cat > "$timer_path" <<TIMER
+[Unit]
+Description=Run Gotify System Report every 2 hours (on the hour)
+
+[Timer]
+OnCalendar=*:0/2
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+TIMER
+
+    systemctl daemon-reload
+    systemctl enable --now gotify-report.timer
+    check_command "定时器注册失败" "定时监控已注册，每 2 小时执行一次"
+
+    # 立即执行首轮
+    print_info "首次运行系统监控..."
+    systemctl start gotify-report.service
+    sleep 2
+    print_success "首次监控已触发，下次将在整点推送"
+    echo ""
+    print_info "定时器排程:"
+    systemctl list-timers | grep gotify-report || true
+
+    print_success "Gotify 推送安装完成"
     print_info "已启用: 开机通知 (gotify-startup.service)"
     print_info "已启用: 关机预警 (gotify-shutdown.service)"
+    print_info "已启用: 定时监控 (gotify-report.timer, 每 2h 整点)"
+}
+
+# ====================== Module: Gotify System Report (纯指标，无 Peer) ======================
+module_gotify_report_run() {
+    print_title "Gotify 系统报告"
+
+    if [ -z "$GOTIFY_URL" ] || [ -z "$GOTIFY_TOKEN" ]; then
+        print_error "请先设定 Gotify URL 和 Token"
+        exit 1
+    fi
+
+    print_info "正在采集系统指标..."
+
+    # Uptime
+    local days=0 hours=0 mins=0
+    if [ -r /proc/uptime ]; then
+        local uptime_seconds
+        read -r uptime_seconds _ < /proc/uptime
+        days=$((uptime_seconds / 86400))
+        hours=$(((uptime_seconds % 86400) / 3600))
+        mins=$(((uptime_seconds % 3600) / 60))
+    fi
+
+    # CPU & Memory
+    local load_1min total_mem used_mem
+    load_1min=$(awk '{print $1}' /proc/loadavg 2>/dev/null || echo "N/A")
+    read -r total_mem used_mem _ < <(free -m | awk '/Mem:/ {print $2, $3, $4}') 2>/dev/null || { total_mem=0; used_mem=0; }
+
+    # Disk
+    local disk_total disk_used disk_free
+    read -r disk_total disk_used disk_free _ < <(df -BG / | awk 'NR==2 {print $2, $3, $4}') 2>/dev/null || { disk_total="N/A"; disk_used="N/A"; disk_free="N/A"; }
+
+    # Top 3 进程
+    local top3="N/A"
+    top3=$(ps -eo comm=,rss= --sort=-rss 2>/dev/null | awk '{size=$2/1024; if (size > 0) printf "%s (%.1fMB), ", $1, size}' | head -c -2)
+    [ -z "$top3" ] && top3="N/A"
+
+    # Public IP
+    local public_ip="N/A"
+    for src in "https://api.ipify.org" "https://ifconfig.me" "https://icanhazip.com"; do
+        public_ip=$(curl -s --max-time 5 "$src" 2>/dev/null | grep -Eo '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$')
+        [ -n "$public_ip" ] && break
+    done
+    [ -z "$public_ip" ] && public_ip="N/A"
+
+    local local_ip
+    local_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    [ -z "$local_ip" ] && local_ip="N/A"
+
+    local ts_ip="N/A"
+    command -v tailscale &>/dev/null && ts_ip=$(tailscale ip -4 2>/dev/null || echo "N/A")
+
+    local message
+    message=$(cat <<MSGBODY
+**伺服器 [ ${DEVICE_NAME} ] 监控报告**
+===================================
+
+**运行时间:** ${days}天 ${hours}时 ${mins}分
+**系统负载:** ${load_1min}
+**内存:** ${used_mem}MB / ${total_mem}MB
+**磁盘 (/):** ${disk_used} / ${disk_total} (剩余: ${disk_free})
+**Top 3 进程:** ${top3}
+
+**Public IP:** ${public_ip}
+**Local IP:** ${local_ip}
+**Tailscale IP:** ${ts_ip}
+
+_$(date '+%Y-%m-%d %H:%M:%S')_
+MSGBODY
+)
+
+    local json_payload
+    json_payload=$(jq -n \
+        --arg title "伺服器 [ ${DEVICE_NAME} ] 运行报告" \
+        --arg msg "$message" \
+        '{title: $title, message: $msg, priority: 3,
+          extras: {"client::display": {"contentType": "text/markdown"}}}' 2>/dev/null)
+
+    if [ -z "$json_payload" ]; then
+        print_info "jq 不可用，使用 form-data 方式发送..."
+        curl -s -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
+            -F "title=伺服器 [ ${DEVICE_NAME} ] 运行报告" \
+            -F "message=$message" \
+            -F "priority=3" > /dev/null 2>&1
+    else
+        curl -s -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$json_payload" > /dev/null 2>&1
+    fi
+
+    if [ $? -eq 0 ]; then
+        print_success "监控报告已推送到 Gotify"
+    else
+        print_error "Gotify 推送失败"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Error: Failed to send Gotify notification" >> "$SCRIPT_DIR/report_error.log"
+    fi
 }
 
 # ====================== Module: Lid Sleep Disable ======================
 module_lid_sleep() {
     print_title "禁用笔记本合盖睡眠"
-
     check_root
 
-    # 笔记本检测
     if ! ls /sys/class/power_supply/BAT* > /dev/null 2>&1; then
         print_info "未检测到电池设备，可能是台式机或服务器"
         if [ -t 0 ]; then
@@ -425,7 +489,6 @@ module_lid_sleep() {
     fi
 
     backup_file "$config_file"
-
     ensure_config_logind "HandleSuspendKey" "HandleSuspendKey=ignore" "$config_file"
     ensure_config_logind "HandleHibernateKey" "HandleHibernateKey=ignore" "$config_file"
     ensure_config_logind "HandleLidSwitch" "HandleLidSwitch=ignore" "$config_file"
@@ -435,7 +498,6 @@ module_lid_sleep() {
     systemctl restart systemd-logind
     check_command "重启 systemd-logind 失败" "配置已生效"
 
-    # 验证
     local failed=false
     for key in HandleSuspendKey HandleHibernateKey HandleLidSwitch HandleLidSwitchExternalPower HandleLidSwitchDocked; do
         if grep -q "^${key}=ignore" "$config_file"; then
@@ -451,7 +513,6 @@ module_lid_sleep() {
 # ====================== Module: Extend LVM Root ======================
 module_extend_lvm() {
     print_title "LVM 根分区自动扩容"
-
     check_root
 
     local deps=(lvdisplay vgs lvextend resize2fs xfs_growfs)
@@ -465,7 +526,6 @@ module_extend_lvm() {
     fi
     print_success "LVM 工具链检查通过"
 
-    # 检测根分区
     local root_device
     root_device=$(df -hP | grep ' /$' | awk '{print $1}')
     if [ -z "$root_device" ]; then
@@ -483,7 +543,6 @@ module_extend_lvm() {
     vg_name=$(lvdisplay "$root_device" | grep "VG Name" | awk '{print $3}')
     print_success "卷组名称: $vg_name"
 
-    # 检查剩余空间
     local free_space
     free_space=$(vgs --noheadings --units g -o vg_free "$vg_name" | awk '{gsub(/g/,""); print $1}')
     if awk "BEGIN {exit !($free_space <= 0.01)}"; then
@@ -492,7 +551,6 @@ module_extend_lvm() {
     fi
     print_success "卷组可用空间: ${free_space}G"
 
-    # 检测文件系统
     local fs_type
     fs_type=$(df -T | grep "$root_device" | awk '{print $2}')
     case "$fs_type" in
@@ -500,7 +558,6 @@ module_extend_lvm() {
         *) print_error "不支持的文件系统: $fs_type (仅 ext4/xfs)" ; exit 1 ;;
     esac
 
-    # 备份
     local bk_dir="/root/lvm_backup_$(date +%Y%m%d_%H%M%S)"
     mkdir -p "$bk_dir"
     vgcfgbackup -f "$bk_dir/vg_${vg_name}.cfg" "$vg_name" 2>/dev/null || true
@@ -508,17 +565,14 @@ module_extend_lvm() {
     vgs > "$bk_dir/vg_before.txt" 2>/dev/null || true
     print_success "LVM 配置已备份至: $bk_dir"
 
-    # 扩展
     lvextend -l +100%FREE "$root_device"
     check_command "逻辑卷扩展失败" "逻辑卷已扩展"
 
-    # 调整文件系统
     case "$fs_type" in
         ext4) resize2fs "$root_device" && print_success "文件系统已扩容" || print_error "resize2fs 失败" ;;
         xfs)  xfs_growfs / && print_success "文件系统已扩容" || print_error "xfs_growfs 失败" ;;
     esac
 
-    # 验证
     print_info "扩容后信息:"
     lvdisplay "$root_device" | grep -E "LV Size|LV Name"
     echo ""
@@ -557,9 +611,77 @@ module_sys_info() {
     echo ""
 }
 
-# --------------------------------------------------------
-# Module: Monitor Agent (Tailscale + Resource + Gotify)
-# --------------------------------------------------------
+# ====================== Module: Tailscale Install ======================
+module_install_tailscale() {
+    print_title "Tailscale 安装与配置"
+
+    if command -v tailscale &>/dev/null; then
+        local ts_ver
+        ts_ver=$(tailscale version 2>/dev/null | head -1)
+        print_info "检测到 Tailscale 已安装 (版本: ${ts_ver:-unknown})"
+        echo ""
+        read -rp "是否重新安装/更新至最新版? (y/n, 默认 n): " reinstall
+        if [[ "$reinstall" != [yY] ]]; then
+            if ! systemctl is-active tailscaled &>/dev/null; then
+                systemctl enable tailscaled
+                systemctl start tailscaled
+            else
+                systemctl enable tailscaled 2>/dev/null || true
+            fi
+            tailscale set --auto-update=true 2>/dev/null || true
+            print_success "自动更新已确保开启"
+            echo ""
+            print_info "当前 Tailscale 状态:"
+            tailscale status 2>/dev/null || print_info "尚未认证，请执行: tailscale up"
+            return
+        fi
+    fi
+
+    print_info "正在安装 Tailscale (官方脚本)..."
+    curl -fsSL https://tailscale.com/install.sh | sh
+    check_command "Tailscale 安装失败" "Tailscale 安装完成"
+
+    systemctl enable tailscaled
+    systemctl start tailscaled
+    check_command "tailscaled 启动失败" "tailscaled 已开机自启并运行中"
+
+    print_info "正在启用自动更新..."
+    tailscale set --auto-update=true 2>/dev/null || true
+    print_success "自动更新已启用 (Tailscale 将在后台自动升级)"
+
+    echo ""
+    print_info "Tailscale 需要认证才能连接到您的 tailnet"
+    print_info "执行以下命令完成认证:"
+    echo ""
+    echo "    tailscale up"
+    echo ""
+    read -rp "是否立即执行 tailscale up? (y/n, 默认 y): " do_up
+    do_up=${do_up:-y}
+    if [[ "$do_up" == [yY] ]]; then
+        tailscale up
+        print_success "Tailscale 认证流程已完成"
+    else
+        print_info "稍后可手动执行 'tailscale up' 完成认证"
+    fi
+
+    echo ""
+    print_info "Tailscale 状态:"
+    tailscale status 2>/dev/null || true
+
+    local ts_ip
+    ts_ip=$(tailscale ip -4 2>/dev/null || true)
+    if [ -n "$ts_ip" ] && [ -z "$TARGET_PEER_IP" ]; then
+        echo ""
+        read -rp "是否将此 Tailscale IP ($ts_ip) 设为 Peer 连通性监控的目标 IP? (y/n): " set_peer
+        if [[ "$set_peer" == [yY] ]]; then
+            TARGET_PEER_IP="$ts_ip"
+            save_env
+            print_success "目标 Peer IP 已设为: $ts_ip"
+        fi
+    fi
+}
+
+# ====================== Module: Peer Monitor (Tailscale + 连通性 + 紧急重启) ======================
 
 # 安全停止所有 Docker 容器（重啟前呼叫）
 safe_stop_docker() {
@@ -579,165 +701,66 @@ safe_stop_docker() {
     print_success "Docker 容器已全部停止"
 }
 
-module_monitor_run() {
-    print_title "运行 Gotify 监控 Agent"
+module_peer_monitor_run() {
+    print_title "Peer 连通性监控"
 
     if [ -z "$GOTIFY_URL" ] || [ -z "$GOTIFY_TOKEN" ]; then
         print_error "请先设定 Gotify URL 和 Token"
         exit 1
     fi
 
-    local report_log=""
-    local reboot_triggered=false
-
-    # ---------------------- Phase B: Tailscale Health ----------------------
     print_info "检查 Tailscale 状态..."
 
-    # B1: 守护进程状态
     if ! command -v tailscale &>/dev/null; then
-        print_info "Tailscale 未安装，跳过网络自愈模块"
-    else
-        if ! tailscale status &>/dev/null; then
-            print_info "Tailscale 未运行，正在重启..."
-            systemctl restart tailscaled
-            sleep 5
-            if tailscale status &>/dev/null; then
-                print_success "Tailscaled 已恢复"
-                report_log="${report_log}\n- Tailscale: 已自动恢复"
-            else
-                print_error "Tailscaled 无法重启"
-                report_log="${report_log}\n- Tailscale: 恢复失败"
-            fi
+        print_error "Tailscale 未安装，无法执行 Peer 监控"
+        print_info "请先通过选单 [3] 安装 Tailscale"
+        exit 1
+    fi
+
+    # 守护进程检查
+    local ts_ok=false
+    if ! tailscale status &>/dev/null; then
+        print_info "Tailscale 未运行，正在重启..."
+        systemctl restart tailscaled
+        sleep 5
+        if tailscale status &>/dev/null; then
+            print_success "Tailscaled 已恢复"
+            ts_ok=true
         else
-            print_success "Tailscale 运行正常"
-            report_log="${report_log}\n- Tailscale: 运行正常"
+            print_error "Tailscaled 无法重启"
         fi
+    else
+        print_success "Tailscale 运行正常"
+        ts_ok=true
+    fi
 
-        # B2: 自动更新
-        tailscale update --yes &>/dev/null || true
+    # 自动更新
+    tailscale update --yes &>/dev/null || true
 
-        # B3: Peer 连通性测试
-        if [ -n "$TARGET_PEER_IP" ]; then
-            print_info "正在检测 Peer $TARGET_PEER_IP..."
-            if ping -c 3 -W 5 "$TARGET_PEER_IP" &>/dev/null; then
-                print_success "Peer 连通正常"
-                report_log="${report_log}\n- Peer ${TARGET_PEER_IP}: 连通正常"
-            else
-                print_error "Peer $TARGET_PEER_IP 不可达，触发紧急流程"
-                report_log="${report_log}\n- Peer ${TARGET_PEER_IP}: 不可达"
+    # Peer 连通性测试
+    if [ -n "$TARGET_PEER_IP" ]; then
+        print_info "正在检测 Peer $TARGET_PEER_IP..."
+        if ping -c 3 -W 5 "$TARGET_PEER_IP" &>/dev/null; then
+            print_success "Peer 连通正常"
+        else
+            print_error "Peer $TARGET_PEER_IP 不可达，触发紧急流程"
 
-                # 发送紧急通知
-                local emergency_msg="**紧急：服务器 ${DEVICE_NAME} 即将重启**\n\n原因：Peer ${TARGET_PEER_IP} 不可达\n时间：$(date '+%Y-%m-%d %H:%M:%S')"
-                send_gotify "紧急警报" "$emergency_msg" 10 "$GOTIFY_URL" "$GOTIFY_TOKEN"
+            local emergency_msg="**紧急：服务器 ${DEVICE_NAME} 即将重启**\n\n原因：Peer ${TARGET_PEER_IP} 不可达\n时间：$(date '+%Y-%m-%d %H:%M:%S')"
+            send_gotify "紧急警报" "$emergency_msg" 10 "$GOTIFY_URL" "$GOTIFY_TOKEN"
 
-                # 安全停止 Docker 容器
-                safe_stop_docker
+            safe_stop_docker
 
-                # 强制重启 (内核级，跳过所有进程)
-                print_info "10 秒后强制重启 (内核级)..."
-                sleep 10
-                reboot --force --force 2>/dev/null || reboot -ff 2>/dev/null || echo b > /proc/sysrq-trigger
-                reboot_triggered=true
-            fi
+            print_info "10 秒后强制重启 (内核级)..."
+            sleep 10
+            reboot --force --force 2>/dev/null || reboot -ff 2>/dev/null || echo b > /proc/sysrq-trigger
         fi
-    fi
-
-    # ---------------------- Phase C: Metrics Collection ----------------------
-    print_info "正在采集系统指标..."
-
-    # C1: Uptime
-    local days=0 hours=0 mins=0
-    if [ -r /proc/uptime ]; then
-        local uptime_seconds
-        read -r uptime_seconds _ < /proc/uptime
-        days=$((uptime_seconds / 86400))
-        hours=$(((uptime_seconds % 86400) / 3600))
-        mins=$(((uptime_seconds % 3600) / 60))
-    fi
-
-    # C2: CPU & Memory
-    local load_1min total_mem used_mem
-    load_1min=$(awk '{print $1}' /proc/loadavg 2>/dev/null || echo "N/A")
-    read -r total_mem used_mem _ < <(free -m | awk '/Mem:/ {print $2, $3, $4}') 2>/dev/null || { total_mem=0; used_mem=0; }
-
-    # C3: Disk
-    local disk_total disk_used disk_free
-    read -r disk_total disk_used disk_free _ < <(df -BG / | awk 'NR==2 {print $2, $3, $4}') 2>/dev/null || { disk_total="N/A"; disk_used="N/A"; disk_free="N/A"; }
-
-    # C4: Top 3 进程
-    local top3="N/A"
-    top3=$(ps -eo comm=,rss= --sort=-rss 2>/dev/null | awk '{size=$2/1024; if (size > 0) printf "%s (%.1fMB), ", $1, size}' | head -c -2)
-    [ -z "$top3" ] && top3="N/A"
-
-    # C5: Public IP (多源回退)
-    local public_ip="N/A"
-    for src in "https://api.ipify.org" "https://ifconfig.me" "https://icanhazip.com"; do
-        public_ip=$(curl -s --max-time 5 "$src" 2>/dev/null | grep -Eo '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$')
-        [ -n "$public_ip" ] && break
-    done
-    [ -z "$public_ip" ] && public_ip="N/A"
-
-    # Local IP
-    local local_ip
-    local_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
-    [ -z "$local_ip" ] && local_ip="N/A"
-
-    # Tailscale IP
-    local ts_ip="N/A"
-    command -v tailscale &>/dev/null && ts_ip=$(tailscale ip -4 2>/dev/null || echo "N/A")
-
-    # ---------------------- Phase D: JSON Format & Send ----------------------
-    local message
-    message=$(cat <<MSGBODY
-**伺服器 [ ${DEVICE_NAME} ] 监控报告**
-===================================
-
-**运行时间:** ${days}天 ${hours}时 ${mins}分
-**系统负载:** ${load_1min}
-**内存:** ${used_mem}MB / ${total_mem}MB
-**磁盘 (/):** ${disk_used} / ${disk_total} (剩余: ${disk_free})
-**Top 3 进程:** ${top3}
-
-**Public IP:** ${public_ip}
-**Local IP:** ${local_ip}
-**Tailscale IP:** ${ts_ip}
-${report_log}
-
-_$(date '+%Y-%m-%d %H:%M:%S')_
-MSGBODY
-)
-
-    # 使用 jq 构建 Markdown 格式 JSON
-    local json_payload
-    json_payload=$(jq -n \
-        --arg title "伺服器 [ ${DEVICE_NAME} ] 运行报告" \
-        --arg msg "$message" \
-        '{title: $title, message: $msg, priority: 3,
-          extras: {"client::display": {"contentType": "text/markdown"}}}' 2>/dev/null)
-
-    if [ -z "$json_payload" ]; then
-        # fallback: 传统 form-data 方式
-        print_info "jq 不可用，使用 form-data 方式发送..."
-        curl -s -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
-            -F "title=伺服器 [ ${DEVICE_NAME} ] 运行报告" \
-            -F "message=$message" \
-            -F "priority=3" > /dev/null 2>&1
     else
-        curl -s -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "$json_payload" > /dev/null 2>&1
-    fi
-
-    if [ $? -eq 0 ]; then
-        print_success "监控报告已推送到 Gotify"
-    else
-        print_error "Gotify 推送失败"
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Error: Failed to send Gotify notification" >> "$SCRIPT_DIR/report_error.log"
+        print_info "未设定 Peer IP，跳过连通性测试"
     fi
 }
 
-module_monitor_install() {
-    print_title "安装 Gotify 监控 Agent (每 2h)"
+module_peer_monitor_install() {
+    print_title "安装 Peer 连通性监控 (定时)"
 
     if [ -z "$GOTIFY_URL" ] || [ -z "$GOTIFY_TOKEN" ]; then
         read -rp "请输入 Gotify API 端点 (如 https://gotify.example.com): " GOTIFY_URL
@@ -747,31 +770,36 @@ module_monitor_install() {
         print_error "Gotify URL 和 Token 为必填项"
         exit 1
     fi
+    if [ -z "$TARGET_PEER_IP" ]; then
+        read -rp "请输入要监控的 Peer IP: " TARGET_PEER_IP
+    fi
+    if [ -z "$TARGET_PEER_IP" ]; then
+        print_error "Peer IP 为必填项"
+        exit 1
+    fi
 
     check_root
 
-    local service_path="/etc/systemd/system/gotify-monitor.service"
-    local timer_path="/etc/systemd/system/gotify-monitor.timer"
+    local service_path="/etc/systemd/system/peer-monitor.service"
+    local timer_path="/etc/systemd/system/peer-monitor.timer"
 
-    # 生成 service unit (机器名称直接 embed)
     cat > "$service_path" <<UNIT
 [Unit]
-Description=Gotify Monitor Agent for ${DEVICE_NAME}
+Description=Peer Monitor for ${DEVICE_NAME}
 After=network.target tailscaled.service
 
 [Service]
 Type=oneshot
-ExecStart=${SCRIPT_DIR}/deploy.sh --monitor \\
+ExecStart=${SCRIPT_DIR}/deploy.sh --peer-monitor \\
     --Device "${DEVICE_NAME}" \\
     --GotifyUrl "${GOTIFY_URL}" \\
     --GotifyToken "${GOTIFY_TOKEN}" \\
     --PeerIP "${TARGET_PEER_IP}"
 UNIT
 
-    # 生成 timer unit
     cat > "$timer_path" <<TIMER
 [Unit]
-Description=Run Gotify Monitor every 2 hours (on the hour)
+Description=Run Peer Monitor every 2 hours (on the hour)
 
 [Timer]
 OnCalendar=*:0/2
@@ -782,97 +810,16 @@ WantedBy=timers.target
 TIMER
 
     systemctl daemon-reload
-    systemctl enable --now gotify-monitor.timer
-    check_command "Timer 注册失败" "监控 Agent 已安装，每 2 小时执行一次"
+    systemctl enable --now peer-monitor.timer
+    check_command "定时器注册失败" "Peer 监控已注册，每 2 小时执行一次"
 
-    # 立即执行一次，让用户马上看到结果
-    print_info "首次运行监控 Agent..."
-    systemctl start gotify-monitor.service
+    print_info "首次运行 Peer 监控..."
+    systemctl start peer-monitor.service
     sleep 2
-    print_success "首次监控已触发，下次将在整点推送（每 2 小时）"
+    print_success "首次 Peer 监控已触发"
     echo ""
     print_info "定时器排程:"
-    systemctl list-timers | grep gotify-monitor || true
-}
-
-# ====================== Module: Tailscale Install ======================
-module_install_tailscale() {
-    print_title "Tailscale 安装与配置"
-
-    # 检查是否已安装
-    if command -v tailscale &>/dev/null; then
-        local ts_ver
-        ts_ver=$(tailscale version 2>/dev/null | head -1)
-        print_info "检测到 Tailscale 已安装 (版本: ${ts_ver:-unknown})"
-        echo ""
-        read -rp "是否重新安装/更新至最新版? (y/n, 默认 n): " reinstall
-        if [[ "$reinstall" != [yY] ]]; then
-            # 不重装，但确保服务运行和自动更新开启
-            if ! systemctl is-active tailscaled &>/dev/null; then
-                systemctl enable tailscaled
-                systemctl start tailscaled
-            else
-                systemctl enable tailscaled 2>/dev/null || true
-            fi
-            tailscale set --auto-update=true 2>/dev/null || true
-            print_success "自动更新已确保开启"
-            echo ""
-            print_info "当前 Tailscale 状态:"
-            tailscale status 2>/dev/null || print_info "尚未认证，请执行: tailscale up"
-            return
-        fi
-    fi
-
-    # 安装官方脚本
-    print_info "正在安装 Tailscale (官方脚本)..."
-    curl -fsSL https://tailscale.com/install.sh | sh
-    check_command "Tailscale 安装失败" "Tailscale 安装完成"
-
-    # 启用开机自启并启动服务
-    systemctl enable tailscaled
-    systemctl start tailscaled
-    check_command "tailscaled 启动失败" "tailscaled 已开机自启并运行中"
-
-    # 设置自动更新 (持久化，后台静默升级)
-    print_info "正在启用自动更新..."
-    tailscale set --auto-update=true 2>/dev/null || true
-    print_success "自动更新已启用 (Tailscale 将在后台自动升级)"
-
-    # 引导认证
-    echo ""
-    print_info "Tailscale 需要认证才能连接到您的 tailnet"
-    print_info "执行以下命令完成认证:"
-    echo ""
-    echo "    tailscale up"
-    echo ""
-    echo "系统将打开一个登录链接，在浏览器中认证即可"
-    echo ""
-    read -rp "是否立即执行 tailscale up? (y/n, 默认 y): " do_up
-    do_up=${do_up:-y}
-    if [[ "$do_up" == [yY] ]]; then
-        tailscale up
-        print_success "Tailscale 认证流程已完成"
-    else
-        print_info "稍后可手动执行 'tailscale up' 完成认证"
-    fi
-
-    # 显示状态
-    echo ""
-    print_info "Tailscale 状态:"
-    tailscale status 2>/dev/null || true
-
-    # 可选：将本机 IP 设为 Peer IP
-    local ts_ip
-    ts_ip=$(tailscale ip -4 2>/dev/null || true)
-    if [ -n "$ts_ip" ] && [ -z "$TARGET_PEER_IP" ]; then
-        echo ""
-        read -rp "是否将此 Tailscale IP ($ts_ip) 设为监控 Agent 的目标 Peer IP? (y/n): " set_peer
-        if [[ "$set_peer" == [yY] ]]; then
-            TARGET_PEER_IP="$ts_ip"
-            save_env
-            print_success "目标 Peer IP 已设为: $ts_ip"
-        fi
-    fi
+    systemctl list-timers | grep peer-monitor || true
 }
 
 # ====================== Module: System Diagnostic ======================
@@ -890,10 +837,10 @@ module_diagnostic() {
 *若收到本条消息，说明 Gotify 配置正确*"
         send_gotify "🧪 诊断测试 - $DEVICE_NAME" "$test_msg" 5 "$GOTIFY_URL" "$GOTIFY_TOKEN"
     else
-        print_error "Gotify 未配置，跳过推送测试（选单选项 [9] 配置）"
+        print_error "Gotify 未配置，跳过推送测试（选单选项 [10] 配置）"
     fi
 
-    # -------- 2. Tailscale 状态检查 --------
+    # -------- 2. Tailscale + Peer 状态 --------
     echo ""
     print_separator
     echo "--- Tailscale 状态 ---"
@@ -912,12 +859,14 @@ module_diagnostic() {
         print_info "Tailscale 未安装"
     fi
 
-    # -------- 3. 监控连通性测试 + 重启模拟 --------
+    # -------- 3. Peer 连通性测试 + 重启模拟 --------
     echo ""
     print_separator
-    echo "--- 监控连通性测试 ---"
+    echo "--- Peer 连通性测试 ---"
     if [ -z "$TARGET_PEER_IP" ]; then
-        print_info "未设定 Peer IP，跳过连通性测试（选单选项 [10] 配置）"
+        print_info "未设定 Peer IP，跳过连通性测试（选单选项 [11] 配置）"
+    elif ! command -v tailscale &>/dev/null; then
+        print_info "Tailscale 未安装，跳过连通性测试"
     elif ! command -v ping &>/dev/null; then
         print_error "ping 不可用，跳过连通性测试"
     else
@@ -927,12 +876,11 @@ module_diagnostic() {
         else
             print_error "Peer $TARGET_PEER_IP 不可达"
             echo ""
-            print_info "监控 Agent 检测到不可达时会执行以下流程:"
+            print_info "Peer 监控检测到不可达时会执行以下流程:"
             echo "  ① 发送 Priority 10 紧急通知至 Gotify"
-            echo "  ② 等待 10 秒"
+            echo "  ② 安全停止所有 Docker 容器"
             echo "  ③ 执行三级内核重启链"
 
-            # 发送紧急通知（模拟）
             if [ -n "$GOTIFY_URL" ] && [ -n "$GOTIFY_TOKEN" ]; then
                 print_info "正在发送测试紧急通知..."
                 local emergency_msg
@@ -956,8 +904,7 @@ module_diagnostic() {
                     echo ""
                     print_info "模拟重启流程:"
                     echo "  ① 紧急通知已发送 (Priority 10)"
-                    echo "  ② 等待 10 秒..."
-                    sleep 2
+                    echo "  ② Docker 容器已安全停止"
                     echo "  ③ 执行: reboot --force --force"
                     echo "  ④ 降级: reboot -ff"
                     echo "  ⑤ 最终: echo b > /proc/sysrq-trigger"
@@ -988,9 +935,9 @@ module_diagnostic() {
     print_success "系统诊断完成"
 }
 
-# --------------------------------------------------------
-#                        MENU
-# --------------------------------------------------------
+# ====================================================================
+#                            MENU
+# ====================================================================
 show_menu() {
     clear
     echo ""
@@ -1002,24 +949,24 @@ show_menu() {
     echo "  Peer IP  : ${TARGET_PEER_IP:-(无)}"
     echo "============================================"
     echo ""
-    echo "-- 系统初始化 --"
+    echo "-- 常用部署 --"
     echo "  [1] 一键初始化服务器"
-    echo "  [2] SSH 密钥免密部署"
+    echo "  [2] 安装 Gotify (通知 + 定时监控)"
     echo ""
-    echo "-- Gotify 推送系统 --"
-    echo "  [3] 安装通知 (开机/关机)"
-    echo "  [4] 安装监控 Agent (每 2h)"
+    echo "-- Tailscale --"
+    echo "  [3] 安装 Tailscale"
+    echo "  [4] 配置 Peer 连通性监控"
     echo ""
-    echo "-- 进阶设定 --"
-    echo "  [5] 禁用笔记本合盖睡眠"
-    echo "  [6] LVM 根分区扩容"
+    echo "-- 辅助工具 --"
+    echo "  [5] SSH 密钥免密部署"
+    echo "  [6] 系统信息查询"
+    echo "  [7] LVM 根分区扩容"
+    echo "  [8] 禁用笔记本合盖睡眠"
     echo ""
-    echo "-- 系统配置 --"
-    echo "  [7] 系统信息查询"
-    echo "  [8] 修改机器名称"
-    echo "  [9] 修改 Gotify URL/Token"
-    echo " [10] 修改 Tailscale Peer IP"
-    echo " [11] 安装 Tailscale (含自动更新)"
+    echo "-- 系统设置 --"
+    echo "  [9] 修改机器名称"
+    echo " [10] 修改 Gotify URL/Token"
+    echo " [11] 修改 Peer IP"
     echo " [12] 系统诊断"
     echo ""
     echo "  [0] 退出"
@@ -1029,49 +976,50 @@ show_menu() {
 menu_loop() {
     while true; do
         show_menu
-         read -rp "   请输入选项编号 [0-12]: " choice
+        read -rp "   请输入选项编号 [0-12]: " choice
         echo ""
         case "$choice" in
             1)  module_init_server ;;
-            2)  module_ssh_key ;;
-            3)  module_gotify_notify ;;
-            4)  module_monitor_install ;;
-            5)  module_lid_sleep ;;
-            6)  module_extend_lvm ;;
-            7)  module_sys_info ;;
-            8)
+            2)  module_install_gotify ;;
+            3)  module_install_tailscale ;;
+            4)  module_peer_monitor_install ;;
+            5)  module_ssh_key ;;
+            6)  module_sys_info ;;
+            7)  module_extend_lvm ;;
+            8)  module_lid_sleep ;;
+            9)
                 read -rp "请输入新的机器名称: " DEVICE_NAME
                 DEVICE_NAME=${DEVICE_NAME:-$(hostname)}
                 save_env
                 print_success "当前机器名称已设为: $DEVICE_NAME"
-                if systemctl is-active gotify-monitor.timer &>/dev/null; then
+                if systemctl is-active gotify-report.timer &>/dev/null; then
                     echo ""
-                    read -rp "检测到已安装监控 Agent，是否同时更新 systemd 中的名称？(y/n): " yn
+                    read -rp "检测到已安装 Gotify 定时监控，是否重新生成脚本? (y/n): " yn
                     if [[ "$yn" == [yY] ]]; then
-                        module_monitor_install
-                        print_success "监控 Agent 已更新为新名称: $DEVICE_NAME"
+                        module_install_gotify
+                        print_success "Gotify 推送已更新为新名称: $DEVICE_NAME"
                     fi
                 fi
-                if systemctl is-enabled gotify-startup.service &>/dev/null; then
+                if systemctl is-active peer-monitor.timer &>/dev/null; then
                     echo ""
-                    read -rp "检测到已安装开机/关机通知，是否重新生成脚本？(y/n): " yn2
+                    read -rp "检测到已安装 Peer 监控，是否重新生成脚本? (y/n): " yn2
                     if [[ "$yn2" == [yY] ]]; then
-                        module_gotify_notify
+                        module_peer_monitor_install
+                        print_success "Peer 监控已更新为新名称: $DEVICE_NAME"
                     fi
                 fi
                 ;;
-            9)
+            10)
                 read -rp "请输入 Gotify URL (如 https://gotify.example.com): " GOTIFY_URL
                 read -rp "请输入 Gotify Token: " GOTIFY_TOKEN
                 save_env
                 print_success "Gotify 配置已更新"
                 ;;
-            10)
-                read -rp "请输入 Tailscale Peer IP: " TARGET_PEER_IP
+            11)
+                read -rp "请输入 Peer IP: " TARGET_PEER_IP
                 save_env
                 print_success "Peer IP 已更新为: $TARGET_PEER_IP"
                 ;;
-            11) module_install_tailscale ;;
             12) module_diagnostic ;;
             0)
                 print_info "感谢使用，再见"
@@ -1088,65 +1036,66 @@ menu_loop() {
     done
 }
 
-# --------------------------------------------------------
-#                   ARGUMENT PARSING
-# --------------------------------------------------------
+# ====================================================================
+#                      ARGUMENT PARSING
+# ====================================================================
 usage() {
     echo "用法: ./deploy.sh [选项]"
     echo ""
     echo "选项:"
-    echo "  (无参数)        显示交互菜单"
-    echo "  --init          一键初始化服务器"
-    echo "  --ssh-key       SSH 密钥免密部署"
-    echo "  --gotify        安装 Gotify 通知 (开机/关机)"
-    echo "  --lid-sleep     禁用笔记本合盖睡眠"
-    echo "  --extend-lvm    LVM 根分区扩容"
-    echo "  --sys-info      系统信息查询"
-    echo "  --monitor       运行监控 Agent (单次)"
-    echo "  --monitor-install 安装监控 Agent 定时器 (每 2h)"
-    echo "  --tailscale-install 安装 Tailscale (含自动更新)"
+    echo "  (无参数)              显示交互菜单"
+    echo "  --init                一键初始化服务器"
+    echo "  --ssh-key             SSH 密钥免密部署"
+    echo "  --gotify              安装 Gotify (通知 + 定时监控)"
+    echo "  --gotify-report       运行一次系统监控报告"
+    echo "  --tailscale-install   安装 Tailscale (含自动更新)"
+    echo "  --peer-monitor        运行一次 Peer 连通性监控"
+    echo "  --peer-monitor-install 安装 Peer 连通性定时监控"
+    echo "  --lid-sleep           禁用笔记本合盖睡眠"
+    echo "  --extend-lvm          LVM 根分区扩容"
+    echo "  --sys-info            系统信息查询"
     echo ""
     echo "参数:"
     echo "  --Device <名称>      指定机器名称 (默认: hostname)"
     echo "  --GotifyUrl <URL>    Gotify 服务地址"
     echo "  --GotifyToken <KEY>  Gotify Token"
-    echo "  --PeerIP <IP>        Tailscale Peer IP"
+    echo "  --PeerIP <IP>        Peer IP"
     echo "  --Timezone <时区>    时区 (如 Asia/Seoul)"
     echo ""
     echo "示例:"
-    echo "  ./deploy.sh --monitor --Device MyServer --GotifyUrl https://gotify.example.com --GotifyToken abc --PeerIP 100.114.252.115"
-    echo "  ./deploy.sh --monitor-install --Device MyServer --GotifyUrl https://gotify.example.com --GotifyToken abc"
+    echo "  ./deploy.sh --gotify --Device MyServer --GotifyUrl https://gotify.example.com --GotifyToken abc"
+    echo "  ./deploy.sh --peer-monitor-install --Device MyServer --GotifyUrl https://gotify.example.com --GotifyToken abc --PeerIP 100.114.252.115"
     exit 0
 }
 
 parse_args() {
     while [ $# -gt 0 ]; do
         case "$1" in
-            --init)             MODE="init"; shift ;;
-            --ssh-key)          MODE="ssh-key"; shift ;;
-            --gotify)           MODE="gotify"; shift ;;
-            --lid-sleep)        MODE="lid-sleep"; shift ;;
-            --extend-lvm)       MODE="extend-lvm"; shift ;;
-            --sys-info)         MODE="sys-info"; shift ;;
-            --monitor)          MODE="monitor"; shift ;;
-            --monitor-install)  MODE="monitor-install"; shift ;;
-            --tailscale-install) MODE="tailscale-install"; shift ;;
-            --Device)           DEVICE_NAME="$2"; shift 2 ;;
-            --GotifyUrl)        GOTIFY_URL="$2"; shift 2 ;;
-            --GotifyToken)      GOTIFY_TOKEN="$2"; shift 2 ;;
-            --PeerIP)           TARGET_PEER_IP="$2"; shift 2 ;;
-            --Timezone)         TARGET_TIMEZONE="$2"; shift 2 ;;
-            -h|--help)          usage ;;
-            *)                  print_error "未知参数: $1"; usage ;;
+            --init)                 MODE="init"; shift ;;
+            --ssh-key)              MODE="ssh-key"; shift ;;
+            --gotify)               MODE="gotify"; shift ;;
+            --gotify-report)        MODE="gotify-report"; shift ;;
+            --tailscale-install)    MODE="tailscale-install"; shift ;;
+            --peer-monitor)         MODE="peer-monitor"; shift ;;
+            --peer-monitor-install) MODE="peer-monitor-install"; shift ;;
+            --lid-sleep)            MODE="lid-sleep"; shift ;;
+            --extend-lvm)           MODE="extend-lvm"; shift ;;
+            --sys-info)             MODE="sys-info"; shift ;;
+            --Device)               DEVICE_NAME="$2"; shift 2 ;;
+            --GotifyUrl)            GOTIFY_URL="$2"; shift 2 ;;
+            --GotifyToken)          GOTIFY_TOKEN="$2"; shift 2 ;;
+            --PeerIP)               TARGET_PEER_IP="$2"; shift 2 ;;
+            --Timezone)             TARGET_TIMEZONE="$2"; shift 2 ;;
+            -h|--help)              usage ;;
+            *)                      print_error "未知参数: $1"; usage ;;
         esac
     done
 }
 
-# --------------------------------------------------------
-#                        MAIN
-# --------------------------------------------------------
+# ====================================================================
+#                           MAIN
+# ====================================================================
 main() {
-    # 无 TTY (piped / systemd) -> 只跑非交互模式
     if [ ! -t 0 ]; then
         if [ $# -eq 0 ]; then
             print_error "非交互模式需要指定 --flag 参数"
@@ -1154,26 +1103,24 @@ main() {
         fi
         parse_args "$@"
     elif [ $# -gt 0 ]; then
-        # 有 TTY 但给了参数
         parse_args "$@"
     else
-        # 有 TTY 且无参数 -> 显示菜单
         menu_loop
         return
     fi
 
-    # 执行对应模块
     case "$MODE" in
-        init)            module_init_server ;;
-        ssh-key)         module_ssh_key ;;
-        gotify)          module_gotify_notify ;;
-        lid-sleep)       module_lid_sleep ;;
-        extend-lvm)      module_extend_lvm ;;
-        sys-info)        module_sys_info ;;
-        monitor)         module_monitor_run ;;
-        monitor-install) module_monitor_install ;;
-        tailscale-install) module_install_tailscale ;;
-        *)               print_error "未指定有效模块"; usage ;;
+        init)                 module_init_server ;;
+        ssh-key)              module_ssh_key ;;
+        gotify)               module_install_gotify ;;
+        gotify-report)        module_gotify_report_run ;;
+        tailscale-install)    module_install_tailscale ;;
+        peer-monitor)         module_peer_monitor_run ;;
+        peer-monitor-install) module_peer_monitor_install ;;
+        lid-sleep)            module_lid_sleep ;;
+        extend-lvm)           module_extend_lvm ;;
+        sys-info)             module_sys_info ;;
+        *)                    print_error "未指定有效模块"; usage ;;
     esac
 }
 

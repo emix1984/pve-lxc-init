@@ -24,11 +24,11 @@ chmod +x deploy.sh && ./deploy.sh
 # 全自动初始化 (需 root)
 ./deploy.sh --init
 
-# 安装监控 Agent (每 2h) (需 root)
-./deploy.sh --monitor-install --Device MyServer --GotifyUrl https://gotify.example.com --GotifyToken xxxx
+# 安装 Gotify (通知 + 定时监控) (需 root)
+./deploy.sh --gotify --Device MyServer --GotifyUrl https://gotify.example.com --GotifyToken xxxx
 
-# 运行一次监控报告 (需 root)
-./deploy.sh --monitor --Device MyServer --GotifyUrl https://gotify.example.com --GotifyToken xxxx
+# 安装 Peer 连通性监控 (需 root)
+./deploy.sh --peer-monitor-install --Device MyServer --GotifyUrl https://gotify.example.com --GotifyToken xxxx --PeerIP 100.114.252.115
 
 # 系统信息查询
 ./deploy.sh --sys-info
@@ -51,9 +51,10 @@ chmod +x deploy.sh && ./deploy.sh
 ### SSH 密钥部署 (`deploy.sh --ssh-key`)
 自动检测/生成 4096 位 RSA 密钥对，通过 ssh-copy-id 推送至远程服务器并验证免密登录。
 
-### Gotify 通知系统 (`deploy.sh --gotify`)
+### Gotify 推送 (`deploy.sh --gotify`)
 - **开机通知**: 服务器联网后自动推送上线消息
 - **关机预警**: 关机/重启前触发离线通知
+- **系统监控报告**: 同时安装定时监控（每 2h 整点推送）
 
 ### 笔记本合盖禁用 (`deploy.sh --lid-sleep`)
 禁用所有电源模式下的合盖睡眠、挂起键和休眠键，自动备份原始配置文件并验证。
@@ -61,19 +62,24 @@ chmod +x deploy.sh && ./deploy.sh
 ### LVM 根分区扩容 (`deploy.sh --extend-lvm`)
 自动识别 LVM 逻辑卷、检测卷组剩余空间、扩展 LV 至 100%FREE、调整文件系统（ext4/xfs），含备份与验证。
 
-### 监控 Agent (`deploy.sh --monitor / --monitor-install`)
-- **Tailscale 自愈**: 守护进程状态检查、自动重启、自动更新
-- **Peer 连通性**: 连接检测失败时发送紧急通知（Priority 10）并触发强制重启
+### 系统监控报告 (`deploy.sh --gotify-report`)
 - **资源采集**: Uptime、RAM/CPU、磁盘、Top3 内存进程
 - **网络发现**: Public IP（三源回退）、Local IP、Tailscale IP
-- **推送频率**: 每 2 小时通过 systemd timer 执行（OnBootSec=5min, Persistent=true）
+- **纯系统指标**，不含 Tailscale/Peer 检测
+- **推送频率**: 每 2 小时整点（`OnCalendar=*:0/2`）
 
 ### Tailscale 安装 (`deploy.sh --tailscale-install`)
 - 官方脚本一键安装 (`curl -fsSL https://tailscale.com/install.sh | sh`)
 - 自动启动并启用 tailscaled 服务
 - 默认开启自动更新 (`tailscale set --auto-update=true`)
 - 引导 `tailscale up` 认证流程
-- 自动将 Tailscale IP 设为监控 Agent 的 Peer IP（可选）
+- 自动将 Tailscale IP 设为 Peer IP（可选）
+
+### Peer 连通性监控 (`deploy.sh --peer-monitor / --peer-monitor-install`)
+- **Tailscale 自愈**: 守护进程状态检查、自动重启、自动更新
+- **Peer 连通性**: 连接检测失败时发送紧急通知（Priority 10）并触发强制重启
+- **Docker 保护**: 重启前安全停止所有运行中的容器
+- **推送频率**: 每 2 小时整点（`OnCalendar=*:0/2`）
 
 ### 系统信息 (`deploy.sh --sys-info`)
 彩色输出 CPU 拓扑、内存负载、磁盘分布、网络 IP、系统版本、运行中服务等诊断信息。
@@ -94,7 +100,7 @@ chmod +x deploy.sh && ./deploy.sh
 ```bash
 ./deploy.sh --init
 ./deploy.sh --tailscale-install
-./deploy.sh --monitor-install --Device "MyServer" --GotifyUrl "https://..." --GotifyToken "..."
+./deploy.sh --peer-monitor-install --Device "MyServer" --GotifyUrl "https://..." --GotifyToken "..." --PeerIP "100.x.x.x"
 ```
 
 ### 场景 3：改名后同步 systemd
@@ -135,36 +141,41 @@ pve-lxc-init/
 |---------|---------|------|
 | `gotify-startup.service` | 开机 | 推送上线通知 |
 | `gotify-shutdown.service` | 关机 | 推送关机预警 |
-| `gotify-monitor.service` | oneshot | 执行监控采集 |
-| `gotify-monitor.timer` | 每 2h | 触发监控采集 |
+| `gotify-report.service` | `gotify-report.timer` | 执行系统监控报告 |
+| `gotify-report.timer` | 每 2h 整点 | 触发系统监控 |
+| `peer-monitor.service` | `peer-monitor.timer` | 执行 Peer 连通性检测 |
+| `peer-monitor.timer` | 每 2h 整点 | 触发 Peer 监控 |
 
 ---
 
 ## 菜单导航
 
-```text
-┌── 系统初始化 ──────────────┐
-│  [1] 一键初始化服务器        │
-│  [2] SSH 密钥免密部署       │
-│  [3] 系统信息查询           │
-└────────────────────────────┘
-┌── Gotify 推送系统 ─────────┐
-│  [4] 安装通知 (开机/关机)   │
-│  [5] 安装监控 Agent (每 2h) │
-│ [12] 系统诊断              │
-└────────────────────────────┘
-┌── 网络配置 ────────────────┐
-│ [11] 安装 Tailscale        │
-└────────────────────────────┘
-┌── 进阶设定 ────────────────┐
-│  [6] 禁用笔记本合盖睡眠     │
-│  [7] LVM 根分区扩容        │
-└────────────────────────────┘
-┌── 系统配置 ────────────────┐
-│  [8] 修改机器名称           │
-│  [9] 修改 Gotify URL/Token  │
-│ [10] 修改 Tailscale Peer IP │
-└────────────────────────────┘
+```
+============================================
+     PVE-LXC-INIT  部 署 管 理 工 具
+============================================
+
+-- 常用部署 --
+  [1] 一键初始化服务器
+  [2] 安装 Gotify (通知 + 定时监控)
+
+-- Tailscale --
+  [3] 安装 Tailscale
+  [4] 配置 Peer 连通性监控
+
+-- 辅助工具 --
+  [5] SSH 密钥免密部署
+  [6] 系统信息查询
+  [7] LVM 根分区扩容
+  [8] 禁用笔记本合盖睡眠
+
+-- 系统设置 --
+  [9] 修改机器名称
+ [10] 修改 Gotify URL/Token
+ [11] 修改 Peer IP
+ [12] 系统诊断
+
+  [0] 退出
 ```
 
 ---
