@@ -221,13 +221,58 @@ module_init_server() {
     print_success "系统初始化完成"
 
     # ========== Gotify 后置安装 ==========
+    local gotify_was_installed=false
+    local monitor_was_installed=false
     if [ -n "$GOTIFY_URL" ] && [ -n "$GOTIFY_TOKEN" ]; then
         if $INSTALL_GOTIFY_NOTIFY; then
             module_gotify_notify
+            gotify_was_installed=true
         fi
         if $INSTALL_GOTIFY_MONITOR; then
             module_monitor_install
+            monitor_was_installed=true
         fi
+    fi
+
+    # ========== 执行报告 ==========
+    echo ""
+    print_separator
+    echo "========================== 执行报告 =========================="
+    echo "  系统初始化:         ✅ 完成"
+    echo "  面板安装:           $([ "$INSTALL_PANEL" = "none" ] && echo "跳过" || echo "$INSTALL_PANEL ✅")"
+    echo "  Root 密码:          $($PASSWORD_MATCH && echo "已设置 ✅" || echo "跳过")"
+    echo "  开机/关机通知:      $($gotify_was_installed && echo "已安装 ✅" || echo "跳过")"
+    echo "  监控 Agent:         $($monitor_was_installed && echo "已安装 ✅" || echo "跳过")"
+    echo "=============================================================="
+
+    # 测试 Gotify 推送
+    if $gotify_was_installed; then
+        echo ""
+        print_info "验证 Gotify 推送..."
+        local test_report_msg
+        test_report_msg="**✅ 服务器初始化完成**\n\n\
+- 服务器: \`$DEVICE_NAME\`\n\
+- 时间: $(date '+%Y-%m-%d %H:%M:%S')\n\
+- 状态: 初始化成功，通知系统运行正常"
+        send_gotify "✅ 初始化完成 - $DEVICE_NAME" "$test_report_msg" 5 "$GOTIFY_URL" "$GOTIFY_TOKEN"
+        echo ""
+    fi
+
+    # 测试监控连通性
+    if $monitor_was_installed; then
+        echo ""
+        print_info "验证监控 Agent 连通性..."
+        if command -v tailscale &>/dev/null && [ -n "$TARGET_PEER_IP" ]; then
+            if ping -c 2 -W 3 "$TARGET_PEER_IP" &>/dev/null; then
+                print_success "Peer $TARGET_PEER_IP 连通正常"
+            else
+                print_warning "Peer $TARGET_PEER_IP 不可达"
+                print_info "监控 Agent 将在下次定时任务中尝试恢复或触发紧急流程"
+            fi
+        else
+            print_info "Tailscale 未安装或无 Peer IP，跳过连通性验证"
+        fi
+        echo ""
     fi
 
     print_info "建议重新登录或运行 'source /etc/profile' 启用历史记录扩容"
@@ -803,26 +848,115 @@ module_install_tailscale() {
     fi
 }
 
-# ====================== Module: Test Gotify Push ======================
-module_test_gotify() {
-    print_title "Gotify 推送测试"
+# ====================== Module: System Diagnostic ======================
+module_diagnostic() {
+    print_title "系统诊断"
 
-    if [ -z "$GOTIFY_URL" ] || [ -z "$GOTIFY_TOKEN" ]; then
-        print_error "请先设定 Gotify URL 和 Token（选单选项 [9]）"
-        return
-    fi
-
-    print_info "正在向 $GOTIFY_URL 发送测试通知..."
-    echo ""
-
-    local test_msg
-    test_msg="**Gotify 推送测试**\n\n\
+    # -------- 1. Gotify 推送测试 --------
+    if [ -n "$GOTIFY_URL" ] && [ -n "$GOTIFY_TOKEN" ]; then
+        print_info "测试 Gotify 推送..."
+        local test_msg
+        test_msg="**系统诊断 - Gotify 推送测试**\n\n\
 - 服务器: \`$DEVICE_NAME\`\n\
 - 时间: $(date '+%Y-%m-%d %H:%M:%S')\n\
 - 状态: ✅ 推送正常\n\n\
 *若收到本条消息，说明 Gotify 配置正确*"
+        send_gotify "🧪 诊断测试 - $DEVICE_NAME" "$test_msg" 5 "$GOTIFY_URL" "$GOTIFY_TOKEN"
+    else
+        print_error "Gotify 未配置，跳过推送测试（选单选项 [9] 配置）"
+    fi
 
-    send_gotify "🧪 测试通知 - $DEVICE_NAME" "$test_msg" 5 "$GOTIFY_URL" "$GOTIFY_TOKEN"
+    # -------- 2. Tailscale 状态检查 --------
+    echo ""
+    print_separator
+    echo "--- Tailscale 状态 ---"
+    if command -v tailscale &>/dev/null; then
+        local ts_ver
+        ts_ver=$(tailscale version 2>/dev/null | head -1)
+        print_info "版本: ${ts_ver:-unknown}"
+        if tailscale status &>/dev/null; then
+            print_success "守护进程运行正常"
+            tailscale status 2>/dev/null | head -5
+        else
+            print_error "守护进程未运行"
+            print_info "执行 'systemctl start tailscaled' 启动"
+        fi
+    else
+        print_info "Tailscale 未安装"
+    fi
+
+    # -------- 3. 监控连通性测试 + 重启模拟 --------
+    echo ""
+    print_separator
+    echo "--- 监控连通性测试 ---"
+    if [ -z "$TARGET_PEER_IP" ]; then
+        print_info "未设定 Peer IP，跳过连通性测试（选单选项 [10] 配置）"
+    elif ! command -v ping &>/dev/null; then
+        print_error "ping 不可用，跳过连通性测试"
+    else
+        print_info "正在检测 Peer $TARGET_PEER_IP..."
+        if ping -c 3 -W 5 "$TARGET_PEER_IP" &>/dev/null; then
+            print_success "Peer $TARGET_PEER_IP 连通正常"
+        else
+            print_error "Peer $TARGET_PEER_IP 不可达"
+            echo ""
+            print_info "监控 Agent 检测到不可达时会执行以下流程:"
+            echo "  ① 发送 Priority 10 紧急通知至 Gotify"
+            echo "  ② 等待 10 秒"
+            echo "  ③ 执行三级内核重启链"
+
+            # 发送紧急通知（模拟）
+            if [ -n "$GOTIFY_URL" ] && [ -n "$GOTIFY_TOKEN" ]; then
+                print_info "正在发送测试紧急通知..."
+                local emergency_msg
+                emergency_msg="**⚠️ 连通性测试 - 模拟紧急警报**\n\n\
+- 服务器: \`$DEVICE_NAME\`\n\
+- Peer: \`$TARGET_PEER_IP\`\n\
+- 状态: 🔴 不可达\n\
+- 时间: $(date '+%Y-%m-%d %H:%M:%S')\n\n\
+*此为模拟测试，非真实紧急情况*"
+                send_gotify "⚠️ 模拟紧急警报" "$emergency_msg" 10 "$GOTIFY_URL" "$GOTIFY_TOKEN"
+            fi
+
+            echo ""
+            print_info "是否执行重启效果模拟？"
+            echo "  [1] 仅显示命令（不重启）"
+            echo "  [2] 确认后真实重启"
+            echo "  [其他] 取消"
+            read -rp "  请选择 [1/2]: " sim_choice
+            case "$sim_choice" in
+                1)
+                    echo ""
+                    print_info "模拟重启流程:"
+                    echo "  ① 紧急通知已发送 (Priority 10)"
+                    echo "  ② 等待 10 秒..."
+                    sleep 2
+                    echo "  ③ 执行: reboot --force --force"
+                    echo "  ④ 降级: reboot -ff"
+                    echo "  ⑤ 最终: echo b > /proc/sysrq-trigger"
+                    print_success "模拟完成（未实际重启）"
+                    ;;
+                2)
+                    echo ""
+                    print_warning "即将执行真实重启！"
+                    read -rp "确认强制重启? (y/n): " confirm
+                    if [[ "$confirm" == [yY] ]]; then
+                        print_info "10 秒后强制重启..."
+                        sleep 10
+                        reboot --force --force 2>/dev/null || reboot -ff 2>/dev/null || echo b > /proc/sysrq-trigger
+                    else
+                        print_info "已取消重启"
+                    fi
+                    ;;
+                *)
+                    print_info "已取消"
+                    ;;
+            esac
+        fi
+    fi
+
+    echo ""
+    print_success "系统诊断完成"
 }
 
 # --------------------------------------------------------
@@ -856,7 +990,7 @@ show_menu() {
     echo "║   ┌── Gotify 推送系统 ────────────────┐    ║"
     echo "║   │  [4] 安装通知 (开机/关机)         │    ║"
     echo "║   │  [5] 安装监控 Agent (每 2h)      │    ║"
-    echo "║   │ [12] 测试推送                    │    ║"
+    echo "║   │ [12] 系统诊断                   │    ║"
     echo "║   └────────────────────────────────────┘    ║"
     echo "║                                              ║"
     echo "║   ┌── 网络配置 ───────────────────────┐    ║"
@@ -927,7 +1061,7 @@ menu_loop() {
                 print_success "Peer IP 已更新为: $TARGET_PEER_IP"
                 ;;
             11) module_install_tailscale ;;
-            12) module_test_gotify ;;
+            12) module_diagnostic ;;
             0)
                 print_info "感谢使用，再见"
                 exit 0

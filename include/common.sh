@@ -11,6 +11,7 @@ YELLOW='\033[1;33m'; BLUE='\033[1;34m'; NC='\033[0m'
 
 print_info()    { echo -e "${GREEN}[INFO]${NC} $1"; }
 print_success() { echo -e "${CYAN}[SUCCESS]${NC} $1"; }
+print_warning() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 print_error()   { echo -e "${RED}[ERROR]${NC} $1"; }
 print_title()   { echo -e "\n${BLUE}>>> $1${NC}"; }
 print_separator() { echo "------------------------------------------------"; }
