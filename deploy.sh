@@ -684,8 +684,11 @@ module_lid_sleep() {
     ensure_config_logind "HandleLidSwitchExternalPower" "HandleLidSwitchExternalPower=ignore" "$config_file"
     ensure_config_logind "HandleLidSwitchDocked" "HandleLidSwitchDocked=ignore" "$config_file"
 
-    systemctl restart systemd-logind
-    check_command "重启 systemd-logind 失败" "配置已生效"
+    if ! systemctl restart systemd-logind; then
+        print_error "重启 systemd-logind 失败"
+        exit 1
+    fi
+    print_success "配置已生效"
 
     local failed=false
     for key in HandleSuspendKey HandleHibernateKey HandleLidSwitch HandleLidSwitchExternalPower HandleLidSwitchDocked; do
@@ -754,8 +757,11 @@ module_extend_lvm() {
     vgs > "$bk_dir/vg_before.txt" 2>/dev/null || true
     print_success "LVM 配置已备份至: $bk_dir"
 
-    lvextend -l +100%FREE "$root_device"
-    check_command "逻辑卷扩展失败" "逻辑卷已扩展"
+    if ! lvextend -l +100%FREE "$root_device"; then
+        print_error "逻辑卷扩展失败"
+        exit 1
+    fi
+    print_success "逻辑卷已扩展"
 
     case "$fs_type" in
         ext4) resize2fs "$root_device" && print_success "文件系统已扩容" || print_error "resize2fs 失败" ;;
@@ -827,12 +833,21 @@ module_install_tailscale() {
     fi
 
     print_info "正在安装 Tailscale (官方脚本)..."
-    curl -fsSL https://tailscale.com/install.sh | sh
-    check_command "Tailscale 安装失败" "Tailscale 安装完成"
+    if ! curl -fsSL https://tailscale.com/install.sh | sh; then
+        print_error "Tailscale 安装失败"
+        exit 1
+    fi
+    print_success "Tailscale 安装完成"
 
-    systemctl enable tailscaled
-    systemctl start tailscaled
-    check_command "tailscaled 启动失败" "tailscaled 已开机自启并运行中"
+    if ! systemctl enable tailscaled; then
+        print_error "tailscaled 启动失败"
+        exit 1
+    fi
+    if ! systemctl start tailscaled; then
+        print_error "tailscaled 启动失败"
+        exit 1
+    fi
+    print_success "tailscaled 已开机自启并运行中"
 
     print_info "正在启用自动更新..."
     tailscale set --auto-update=true 2>/dev/null || true
@@ -988,7 +1003,7 @@ UNIT
 
     cat > "$timer_path" <<TIMER
 [Unit]
-    Description=Run Tailscale Peer Monitor every 2 hours (on the hour)
+Description=Run Tailscale Peer Monitor every 2 hours (on the hour)
 
 [Timer]
 OnCalendar=*:0/2
@@ -998,10 +1013,16 @@ Persistent=true
 WantedBy=timers.target
 TIMER
 
-    systemctl daemon-reload
-    systemctl daemon-reload
-    systemctl enable --now tailscale-peer-monitor.timer
-    check_command "定时器注册失败" "Tailscale Peer 监控已注册，每 2 小时执行一次"
+    if ! systemctl daemon-reload; then
+        print_error "系统服务缓存更新失败"
+        exit 1
+    fi
+
+    if ! systemctl enable --now tailscale-peer-monitor.timer; then
+        print_error "定时器注册失败"
+        exit 1
+    fi
+    print_success "Tailscale Peer 监控已注册，每 2 小时执行一次"
     print_info "首次运行 Tailscale Peer 监控..."
     systemctl start tailscale-peer-monitor.service
     sleep 2
