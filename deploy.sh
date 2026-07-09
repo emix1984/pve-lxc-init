@@ -1093,6 +1093,53 @@ parse_args() {
 }
 
 # ====================================================================
+#                   VERSION CHECK (STARTUP)
+# ====================================================================
+check_update() {
+    # 僅互動模式執行
+    if [ ! -t 0 ]; then return; fi
+
+    command -v git &>/dev/null || return
+    git rev-parse --git-dir &>/dev/null || return
+
+    local remote_url
+    remote_url=$(git config --get remote.origin.url 2>/dev/null || true)
+    if [ -z "$remote_url" ]; then return; fi
+
+    local local_commit remote_commit
+    local_commit=$(git rev-parse HEAD 2>/dev/null || echo "")
+    [ -z "$local_commit" ] && return
+
+    print_info "正在检查更新..."
+    remote_commit=$(git ls-remote origin HEAD 2>/dev/null | awk '{print $1}')
+    if [ -z "$remote_commit" ]; then
+        print_info "无法连接远程仓库，跳过更新检查"
+        return
+    fi
+
+    if [ "$local_commit" = "$remote_commit" ]; then
+        print_success "已是最新版本 (${local_commit:0:8})"
+        return
+    fi
+
+    echo ""
+    print_warning "发现新版本！"
+    echo "  本地: ${local_commit:0:8}"
+    echo "  远程: ${remote_commit:0:8}"
+    echo ""
+    read -rp "是否强制拉取 GitHub 最新代码? (y/n, 默认 n): " do_update
+    if [[ "$do_update" == [yY] ]]; then
+        print_info "正在强制同步远程代码..."
+        git fetch origin --force
+        git reset --hard origin/main
+        print_success "已更新至最新版本: ${remote_commit:0:8}"
+        print_info "请重新运行脚本以应用更新"
+        exit 0
+    fi
+    echo ""
+}
+
+# ====================================================================
 #                           MAIN
 # ====================================================================
 main() {
@@ -1105,6 +1152,7 @@ main() {
     elif [ $# -gt 0 ]; then
         parse_args "$@"
     else
+        check_update
         menu_loop
         return
     fi
