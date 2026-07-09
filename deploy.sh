@@ -861,16 +861,16 @@ module_install_tailscale() {
     ts_ip=$(tailscale ip -4 2>/dev/null || true)
     if [ -n "$ts_ip" ] && [ -z "$TARGET_PEER_IP" ]; then
         echo ""
-        read -rp "是否将此 Tailscale IP ($ts_ip) 设为 Peer 连通性监控的目标 IP? (y/n): " set_peer
+        read -rp "是否将此 Tailscale IP ($ts_ip) 设为 Tailscale Peer 连通性监控的目标 IP? (y/n): " set_peer
         if [[ "$set_peer" == [yY] ]]; then
             TARGET_PEER_IP="$ts_ip"
             save_env
-            print_success "目标 Peer IP 已设为: $ts_ip"
+            print_success "目标 Tailscale Peer IP 已设为: $ts_ip"
         fi
     fi
 }
 
-# ====================== Module: Peer Monitor (Tailscale + 连通性 + 紧急重启) ======================
+# ====================== Module: Tailscale Peer Monitor (连通性 + 紧急重启) ======================
 
 # 安全停止所有 Docker 容器（重啟前呼叫）
 safe_stop_docker() {
@@ -890,8 +890,8 @@ safe_stop_docker() {
     print_success "Docker 容器已全部停止"
 }
 
-module_peer_monitor_run() {
-    print_title "Peer 连通性监控"
+module_tailscale_peer_monitor_run() {
+    print_title "Tailscale Peer 连通性监控"
 
     if [ -z "$GOTIFY_URL" ] || [ -z "$GOTIFY_TOKEN" ]; then
         print_error "请先设定 Gotify URL 和 Token"
@@ -902,7 +902,7 @@ module_peer_monitor_run() {
 
     if ! command -v tailscale &>/dev/null; then
         print_error "Tailscale 未安装，无法执行 Peer 监控"
-        print_info "请先通过选单 [3] 安装 Tailscale"
+        print_error "Tailscale 未安装，无法执行 Tailscale Peer 监控"
         exit 1
     fi
 
@@ -926,15 +926,15 @@ module_peer_monitor_run() {
     # 自动更新
     tailscale update --yes &>/dev/null || true
 
-    # Peer 连通性测试
+    # Tailscale Peer 连通性测试
     if [ -n "$TARGET_PEER_IP" ]; then
-        print_info "正在检测 Peer $TARGET_PEER_IP..."
+        print_info "正在检测 Tailscale Peer $TARGET_PEER_IP..."
         if ping -c 3 -W 5 "$TARGET_PEER_IP" &>/dev/null; then
-            print_success "Peer 连通正常"
+        print_success "Tailscale Peer 连通正常"
         else
-            print_error "Peer $TARGET_PEER_IP 不可达，触发紧急流程"
+        print_error "Tailscale Peer $TARGET_PEER_IP 不可达，触发紧急流程"
 
-            local emergency_msg="**紧急：服务器 ${DEVICE_NAME} 即将重启**\n\n原因：Peer ${TARGET_PEER_IP} 不可达\n时间：$(date '+%Y-%m-%d %H:%M:%S')"
+            local emergency_msg="**紧急：服务器 ${DEVICE_NAME} 即将重启**\n\n原因：Tailscale Peer ${TARGET_PEER_IP} 不可达\n时间：$(date '+%Y-%m-%d %H:%M:%S')"
             send_gotify "紧急警报" "$emergency_msg" 10 "$GOTIFY_URL" "$GOTIFY_TOKEN"
 
             safe_stop_docker
@@ -944,12 +944,12 @@ module_peer_monitor_run() {
             reboot --force --force 2>/dev/null || reboot -ff 2>/dev/null || echo b > /proc/sysrq-trigger
         fi
     else
-        print_info "未设定 Peer IP，跳过连通性测试"
+        print_info "未设定 Tailscale Peer IP，跳过连通性测试"
     fi
 }
 
-module_peer_monitor_install() {
-    print_title "安装 Peer 连通性监控 (定时)"
+module_tailscale_peer_monitor_install() {
+    print_title "安装 Tailscale Peer 连通性监控 (定时)"
 
     if [ -z "$GOTIFY_URL" ] || [ -z "$GOTIFY_TOKEN" ]; then
         read -rp "请输入 Gotify API 端点 (如 https://gotify.example.com): " GOTIFY_URL
@@ -960,26 +960,26 @@ module_peer_monitor_install() {
         exit 1
     fi
     if [ -z "$TARGET_PEER_IP" ]; then
-        read -rp "请输入要监控的 Peer IP: " TARGET_PEER_IP
+        read -rp "请输入要监控的 Tailscale Peer IP: " TARGET_PEER_IP
     fi
     if [ -z "$TARGET_PEER_IP" ]; then
-        print_error "Peer IP 为必填项"
+        print_error "Tailscale Peer IP 为必填项"
         exit 1
     fi
 
     check_root
 
-    local service_path="/etc/systemd/system/peer-monitor.service"
-    local timer_path="/etc/systemd/system/peer-monitor.timer"
+    local service_path="/etc/systemd/system/tailscale-peer-monitor.service"
+    local timer_path="/etc/systemd/system/tailscale-peer-monitor.timer"
 
     cat > "$service_path" <<UNIT
 [Unit]
-Description=Peer Monitor for ${DEVICE_NAME}
+    Description=Tailscale Peer Monitor for ${DEVICE_NAME}
 After=network.target tailscaled.service
 
 [Service]
 Type=oneshot
-ExecStart=${SCRIPT_DIR}/deploy.sh --peer-monitor \\
+    ExecStart=${SCRIPT_DIR}/deploy.sh --tailscale-peer-monitor \
     --Device "${DEVICE_NAME}" \\
     --GotifyUrl "${GOTIFY_URL}" \\
     --GotifyToken "${GOTIFY_TOKEN}" \\
@@ -988,7 +988,7 @@ UNIT
 
     cat > "$timer_path" <<TIMER
 [Unit]
-Description=Run Peer Monitor every 2 hours (on the hour)
+    Description=Run Tailscale Peer Monitor every 2 hours (on the hour)
 
 [Timer]
 OnCalendar=*:0/2
@@ -999,16 +999,16 @@ WantedBy=timers.target
 TIMER
 
     systemctl daemon-reload
-    systemctl enable --now peer-monitor.timer
-    check_command "定时器注册失败" "Peer 监控已注册，每 2 小时执行一次"
-
-    print_info "首次运行 Peer 监控..."
-    systemctl start peer-monitor.service
+    systemctl daemon-reload
+    systemctl enable --now tailscale-peer-monitor.timer
+    check_command "定时器注册失败" "Tailscale Peer 监控已注册，每 2 小时执行一次"
+    print_info "首次运行 Tailscale Peer 监控..."
+    systemctl start tailscale-peer-monitor.service
     sleep 2
-    print_success "首次 Peer 监控已触发"
+    print_success "首次 Tailscale Peer 监控已触发"
     echo ""
     print_info "定时器排程:"
-    systemctl list-timers | grep peer-monitor || true
+    systemctl list-timers | grep tailscale-peer-monitor || true
 }
 
 # ====================== Module: System Diagnostic ======================
@@ -1048,10 +1048,10 @@ module_diagnostic() {
         print_info "Tailscale 未安装"
     fi
 
-    # -------- 3. Peer 连通性测试 + 重启模拟 --------
+    # -------- 3. Tailscale Peer 连通性测试 + 重启模拟 --------
     echo ""
     print_separator
-    echo "--- Peer 连通性测试 ---"
+    echo "--- Tailscale Peer 连通性测试 ---"
     if [ -z "$TARGET_PEER_IP" ]; then
         print_info "未设定 Peer IP，跳过连通性测试（选单选项 [11] 配置）"
     elif ! command -v tailscale &>/dev/null; then
@@ -1135,7 +1135,7 @@ show_menu() {
     echo "============================================"
     echo "  机器名称 : $DEVICE_NAME"
     echo "  Gotify   : $([ -n "$GOTIFY_URL" ] && echo "已设定" || echo "未设定")"
-    echo "  Peer IP  : ${TARGET_PEER_IP:-(无)}"
+    echo "  Tailscale Peer: ${TARGET_PEER_IP:-(未配置)}"
     echo "============================================"
     echo ""
     echo "-- 常用部署 --"
@@ -1144,7 +1144,7 @@ show_menu() {
     echo ""
     echo "-- Tailscale --"
     echo "  [3] 安装 Tailscale"
-    echo "  [4] 配置 Peer 连通性监控"
+    echo "  [4] 配置 Tailscale Peer 连通性监控"
     echo ""
     echo "-- 辅助工具 --"
     echo "  [5] SSH 密钥免密部署"
@@ -1155,7 +1155,7 @@ show_menu() {
     echo "-- 系统设置 --"
     echo "  [9] 修改机器名称"
     echo " [10] 修改 Gotify URL/Token"
-    echo " [11] 修改 Peer IP"
+    echo " [11] 修改 Tailscale Peer IP"
     echo " [12] 系统诊断"
     echo ""
     echo "  [0] 退出"
@@ -1293,7 +1293,7 @@ parse_args() {
             --gotify)               MODE="gotify"; shift ;;
             --gotify-report)        MODE="gotify-report"; shift ;;
             --tailscale-install)    MODE="tailscale-install"; shift ;;
-            --peer-monitor)         MODE="peer-monitor"; shift ;;
+            --tailscale-peer-monitor)         MODE="tailscale-peer-monitor"; shift ;;
             --peer-monitor-install) MODE="peer-monitor-install"; shift ;;
             --lid-sleep)            MODE="lid-sleep"; shift ;;
             --extend-lvm)           MODE="extend-lvm"; shift ;;
@@ -1380,7 +1380,7 @@ main() {
         gotify)               module_install_gotify ;;
         gotify-report)        module_gotify_report_run ;;
         tailscale-install)    module_install_tailscale ;;
-        peer-monitor)         module_peer_monitor_run ;;
+        tailscale-peer-monitor)         module_tailscale_peer_monitor_run ;;
         peer-monitor-install) module_peer_monitor_install ;;
         lid-sleep)            module_lid_sleep ;;
         extend-lvm)           module_extend_lvm ;;
