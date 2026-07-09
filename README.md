@@ -92,7 +92,7 @@ chmod +x deploy.sh && ./deploy.sh
 
 ```bash
 ./deploy.sh
-# 选单: 1 → 4 → 5
+# 选单: 1 → 初始化, 需要 Gotify 再加 [2]
 ```
 
 ### 一键全自动
@@ -118,13 +118,7 @@ pve-lxc-init/
 ├── deploy.sh                  # 统一入口 (互动菜单 + --flag 模式 + systemd 背景)
 ├── .env.sample                # 配置模板 (cp 至 /etc/default/pve-lxc-init)
 ├── include/
-│   ├── common.sh              # 共用工厂函数库
-│   ├── 01_init_server.sh      # [DEPRECATED] 已整合至 deploy.sh
-│   ├── 02_deploy_ssh_key.sh   # [DEPRECATED] 已整合至 deploy.sh
-│   ├── 03_setup_gotify.sh     # [DEPRECATED] 已整合至 deploy.sh
-│   ├── 04_setup_lid_sleep.sh  # [DEPRECATED] 已整合至 deploy.sh
-│   ├── 05_extend_lvm_root.sh  # [DEPRECATED] 已整合至 deploy.sh
-│   └── sys_info.sh            # [DEPRECATED] 已整合至 deploy.sh
+│   └── common.sh              # 共用工厂函数库
 ├── docs/
 │   └── architecture.md        # 架构设计文档
 ├── project_skill.md           # 技术栈与踩坑记录

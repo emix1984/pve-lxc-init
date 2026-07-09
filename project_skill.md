@@ -5,7 +5,7 @@
 | 技术 | 用途 |
 |------|------|
 | Bash | 全部脚本实现语言 |
-| systemd (service/timer) | 开机/关机通知、定时监控 Agent |
+| systemd (service/timer) | 开机/关机通知、定时系统报告、Peer 连通性监控 |
 | systemd-logind | 笔记本合盖/睡眠行为控制 |
 | LVM2 | 根分区逻辑卷管理 |
 | Tailscale | 自愈网络与 Peer 连通性检测 |
