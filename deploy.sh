@@ -273,7 +273,7 @@ module_init_server() {
             print_info "Tailscale 未安装或无 Peer IP，跳过连通性验证"
         fi
         echo ""
-        print_info "首次监控已执行，之后每 2 小时自动推送一次"
+        print_info "首次监控已执行，之后每 2 小时整点自动推送"
     fi
 
     print_info "建议重新登录或运行 'source /etc/profile' 启用历史记录扩容"
@@ -771,11 +771,10 @@ UNIT
     # 生成 timer unit
     cat > "$timer_path" <<TIMER
 [Unit]
-Description=Run Gotify Monitor every 2 hours
+Description=Run Gotify Monitor every 2 hours (on the hour)
 
 [Timer]
-OnBootSec=5min
-OnUnitActiveSec=2h
+OnCalendar=*:0/2
 Persistent=true
 
 [Install]
@@ -786,11 +785,11 @@ TIMER
     systemctl enable --now gotify-monitor.timer
     check_command "Timer 注册失败" "监控 Agent 已安装，每 2 小时执行一次"
 
-    # 立即执行一次，设定 OnUnitActiveSec=2h 的基准线
+    # 立即执行一次，让用户马上看到结果
     print_info "首次运行监控 Agent..."
     systemctl start gotify-monitor.service
     sleep 2
-    print_success "首次监控已触发，下次执行时间为 2 小时后"
+    print_success "首次监控已触发，下次将在整点推送（每 2 小时）"
     echo ""
     print_info "定时器排程:"
     systemctl list-timers | grep gotify-monitor || true
