@@ -493,6 +493,7 @@ EOF
     print_success "关机通知已激活"
 
     # -------- 3. 定时监控 (纯系统指标，不含 Tailscale/Peer) --------
+    local ABS_SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
     local service_path="/etc/systemd/system/gotify-report.service"
     local timer_path="/etc/systemd/system/gotify-report.timer"
     if ! cat > "$service_path" <<SERVICE
@@ -502,7 +503,7 @@ After=network.target
 
 [Service]
 Type=oneshot
-ExecStart=${SCRIPT_DIR}/deploy.sh --gotify-report \\
+ExecStart=${ABS_SCRIPT_DIR}/deploy.sh --gotify-report \\
     --Device "${DEVICE_NAME}" \\
     --GotifyUrl "${GOTIFY_URL}" \\
     --GotifyToken "${GOTIFY_TOKEN}"
@@ -573,9 +574,9 @@ module_gotify_report_run() {
     if [ -r /proc/uptime ]; then
         local uptime_seconds
         read -r uptime_seconds _ < /proc/uptime
-        days=$((uptime_seconds / 86400))
-        hours=$(((uptime_seconds % 86400) / 3600))
-        mins=$(((uptime_seconds % 3600) / 60))
+        days=$(awk "BEGIN {print int($uptime_seconds / 86400)}")
+        hours=$(awk "BEGIN {print int(($uptime_seconds % 86400) / 3600)}")
+        mins=$(awk "BEGIN {print int(($uptime_seconds % 3600) / 60)}")
     fi
 
     # CPU & Memory
@@ -996,7 +997,7 @@ After=network.target tailscaled.service
 
 [Service]
 Type=oneshot
-    ExecStart=${SCRIPT_DIR}/deploy.sh --tailscale-peer-monitor \
+    ExecStart=${ABS_SCRIPT_DIR}/deploy.sh --tailscale-peer-monitor \
     --Device "${DEVICE_NAME}" \\
     --GotifyUrl "${GOTIFY_URL}" \\
     --GotifyToken "${GOTIFY_TOKEN}" \\
