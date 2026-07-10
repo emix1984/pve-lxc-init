@@ -557,7 +557,116 @@ TIMER
     print_success "Gotify 推送安装完成"
     print_success_with_log "已启用: 开机通知 (gotify-startup.service)"
     print_success_with_log "已启用: 关机预警 (gotify-shutdown.service)"
-    print_success_with_log "已启用: 定时监控 (gotify-report.timer, 每 2h 整点)"
+    print_success_with_log "已启用: 定时监控 (gotify-report.timer, 每 2h 从 10:00 开始)"
+}
+
+# ====================== Module: Test Monitor (测试监控推送) ======================
+module_test_monitor() {
+    print_title "测试监控推送"
+
+    if [ -z "$GOTIFY_URL" ] || [ -z "$GOTIFY_TOKEN" ]; then
+        print_error "请先安装 Gotify 或手动设置 Gotify URL 和 Token"
+        print_info "安装方式: 菜单选项 [2] 或命令行 --gotify"
+        return 1
+    fi
+
+    if [ -z "$DEVICE_NAME" ]; then
+        DEVICE_NAME=$(hostname)
+    fi
+
+    print_info "正在执行系统监控并推送测试..."
+
+    # Uptime
+    local days=0 hours=0 mins=0
+    if [ -r /proc/uptime ]; then
+        local uptime_seconds
+        read -r uptime_seconds _ < /proc/uptime
+        days=$(awk "BEGIN {print int($uptime_seconds / 86400)}")
+        hours=$(awk "BEGIN {print int(($uptime_seconds % 86400) / 3600)}")
+        mins=$(awk "BEGIN {print int(($uptime_seconds % 3600) / 60)}")
+    fi
+
+    # CPU & Memory
+    local load_1min total_mem used_mem
+    load_1min=$(awk '{print $1}' /proc/loadavg 2>/dev/null || echo "N/A")
+    read -r total_mem used_mem _ < <(free -m | awk '/Mem:/ {print $2, $3, $4}') 2>/dev/null || { total_mem=0; used_mem=0; }
+
+    # Disk
+    local disk_total disk_used disk_free
+    read -r disk_total disk_used disk_free _ < <(df -BG / | awk 'NR==2 {print $2, $3, $4}') 2>/dev/null || { disk_total="N/A"; disk_used="N/A"; disk_free="N/A"; }
+
+    # Top 3 进程
+    local top3="N/A"
+    top3=$(ps -eo comm=,rss= --sort=-rss 2>/dev/null | awk '{size=$2/1024; if (size > 0) printf "%s (%.1fMB), ", $1, size}' | head -c -2)
+    [ -z "$top3" ] && top3="N/A"
+
+    # Public IP
+    local public_ip="N/A"
+    for src in "https://api.ipify.org" "https://ifconfig.me" "https://icanhazip.com"; do
+        public_ip=$(curl -s --max-time 5 "$src" 2>/dev/null | grep -Eo '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$')
+        [ -n "$public_ip" ] && break
+    done
+    [ -z "$public_ip" ] && public_ip="N/A"
+
+    local local_ip
+    local_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    [ -z "$local_ip" ] && local_ip="N/A"
+
+    local ts_ip="N/A"
+    command -v tailscale &>/dev/null && ts_ip=$(tailscale ip -4 2>/dev/null || echo "N/A")
+
+    local message
+    message=$(cat <<MSGBODY
+**伺服器 [ ${DEVICE_NAME} ] 监控报告**
+===================================
+
+**运行时间:** ${days}天 ${hours}时 ${mins}分
+**系统负载:** ${load_1min}
+**内存:** ${used_mem}MB / ${total_mem}MB
+**磁盘 (/):** ${disk_used} / ${disk_total} (剩余: ${disk_free})
+**Top 3 进程:** ${top3}
+
+**Public IP:** ${public_ip}
+**Local IP:** ${local_ip}
+**Tailscale IP:** ${ts_ip}
+
+_$(date '+%Y-%m-%d %H:%M:%S')_
+MSGBODY
+)
+
+    local json_payload
+    json_payload=$(jq -n \
+        --arg title "伺服器 [ ${DEVICE_NAME} ] 运行报告" \
+        --arg msg "$message" \
+        '{title: $title, message: $msg, priority: 3,
+          extras: {"client::display": {"contentType": "text/markdown"}}}' 2>/dev/null)
+
+    if [ -z "$json_payload" ]; then
+        print_info "jq 不可用，使用 form-data 方式发送..."
+        curl -s -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
+            -F "title=伺服器 [ ${DEVICE_NAME} ] 运行报告" \
+            -d "message=$message" \
+            -F "priority=3" > /dev/null 2>&1
+    else
+        curl -s -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$json_payload" > /dev/null 2>&1
+    fi
+
+    if [ $? -eq 0 ]; then
+        print_success "监控报告已成功推送到 Gotify"
+        echo ""
+        print_info "下次定时推送: 每天 10:00 (每 2 小时)"
+        if systemctl is-active gotify-report.timer &>/dev/null; then
+            print_success "Gotify 定时监控已启用"
+        else
+            print_warning "Gotify 定时监控未启用，使用菜单 [2] 安装"
+        fi
+    else
+        print_error "Gotify 推送失败"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Error: Failed to send Gotify notification" >> "$SCRIPT_DIR/report_error.log"
+        return 1
+    fi
 }
 
 # ====================== Module: Gotify System Report (纯指标，无 Peer) ======================
@@ -1167,22 +1276,23 @@ show_menu() {
     echo "-- 常用部署 --"
     echo "  [1] 一键初始化服务器"
     echo "  [2] 安装 Gotify (通知 + 定时监控)"
+    echo "  [3] 测试监控推送（立即验证）"
     echo ""
     echo "-- Tailscale --"
-    echo "  [3] 安装 Tailscale"
-    echo "  [4] 配置 Tailscale Peer 连通性监控"
+    echo "  [4] 安装 Tailscale"
+    echo "  [5] 配置 Tailscale Peer 连通性监控"
     echo ""
     echo "-- 辅助工具 --"
-    echo "  [5] SSH 密钥免密部署"
-    echo "  [6] 系统信息查询"
-    echo "  [7] LVM 根分区扩容"
-    echo "  [8] 禁用笔记本合盖睡眠"
+    echo "  [6] SSH 密钥免密部署"
+    echo "  [7] 系统信息查询"
+    echo "  [8] LVM 根分区扩容"
+    echo "  [9] 禁用笔记本合盖睡眠"
     echo ""
     echo "-- 系统设置 --"
-    echo "  [9] 修改机器名称"
-    echo " [10] 修改 Gotify URL/Token"
-    echo " [11] 修改 Tailscale Peer IP"
-    echo " [12] 系统诊断"
+    echo "  [10] 修改机器名称"
+    echo " [11] 修改 Gotify URL/Token"
+    echo " [12] 修改 Tailscale Peer IP"
+    echo " [13] 系统诊断"
     echo ""
     echo "  [0] 退出"
     echo "--------------------------------------------"
@@ -1220,13 +1330,14 @@ menu_loop() {
         case "$choice" in
             1)  module_init_server ;;
             2)  module_install_gotify ;;
-            3)  module_install_tailscale ;;
-            4)  module_peer_monitor_install ;;
-            5)  module_ssh_key ;;
-            6)  module_sys_info ;;
-            7)  module_extend_lvm ;;
-            8)  module_lid_sleep ;;
-            9)
+            3)  module_test_monitor ;;
+            4)  module_install_tailscale ;;
+            5)  module_peer_monitor_install ;;
+            6)  module_ssh_key ;;
+            7)  module_sys_info ;;
+            8)  module_extend_lvm ;;
+            9)  module_lid_sleep ;;
+            10)
                 read -rp "请输入新的机器名称: " DEVICE_NAME
                 DEVICE_NAME=${DEVICE_NAME:-$(hostname)}
                 save_env
@@ -1248,7 +1359,7 @@ menu_loop() {
                     fi
                 fi
                 ;;
-            10)
+            11)
                 read -rp "请输入 Gotify URL (如 https://gotify.example.com): " GOTIFY_URL
                 read -rp "请输入 Gotify Token: " GOTIFY_TOKEN
                 if [ -n "$GOTIFY_URL" ]; then
@@ -1256,14 +1367,14 @@ menu_loop() {
                     print_success "Gotify 配置已更新"
                 fi
                 ;;
-            11)
+            12)
                 read -rp "请输入 Peer IP: " TARGET_PEER_IP
                 if [ -n "$TARGET_PEER_IP" ]; then
                     save_env
                     print_success "Peer IP 已更新为: $TARGET_PEER_IP"
                 fi
                 ;;
-            12) module_diagnostic ;;
+            13) module_diagnostic ;;
             0)
                 print_info "感谢使用，再见"
                 exit 0
@@ -1291,6 +1402,7 @@ usage() {
     echo "  --ssh-key             SSH 密钥免密部署"
     echo "  --gotify              安装 Gotify (通知 + 定时监控)"
     echo "  --gotify-report       运行一次系统监控报告"
+    echo "  --test-monitor        测试监控推送（立即验证）"
     echo "  --tailscale-install   安装 Tailscale (含自动更新)"
     echo "  --tailscale-peer-monitor        运行一次 Tailscale Peer 连通性监控"
     echo "  --tailscale-peer-monitor-install 安装 Tailscale Peer 连通性定时监控"
@@ -1319,6 +1431,7 @@ parse_args() {
             --ssh-key)              MODE="ssh-key"; shift ;;
             --gotify)               MODE="gotify"; shift ;;
             --gotify-report)        MODE="gotify-report"; shift ;;
+            --test-monitor)         MODE="test-monitor"; shift ;;
             --tailscale-install)    MODE="tailscale-install"; shift ;;
             --tailscale-peer-monitor)         MODE="tailscale-peer-monitor"; shift ;;
             --tailscale-peer-monitor-install) MODE="tailscale-peer-monitor-install"; shift ;;
@@ -1462,6 +1575,7 @@ main() {
         ssh-key)              module_ssh_key ;;
         gotify)               module_install_gotify ;;
         gotify-report)        module_gotify_report_run ;;
+        test-monitor)         module_test_monitor ;;
         tailscale-install)    module_install_tailscale ;;
         tailscale-peer-monitor)         module_tailscale_peer_monitor_run ;;
         tailscale-peer-monitor-install) module_tailscale_peer_monitor_install ;;
