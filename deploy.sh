@@ -314,7 +314,8 @@ module_ssh_key() {
         read -rp "请输入远程服务器 IP/域名 [默认: 127.0.0.1]: " REMOTE_HOST
         REMOTE_HOST=${REMOTE_HOST:-127.0.0.1}
         # 简单验证格式
-        if [[ "$REMOTE_HOST" =~ ^[a-zA-Z0-9\-\.]+$ ]]; then
+        local re='^[a-zA-Z0-9.-]+$'
+        if [[ "$REMOTE_HOST" =~ $re ]]; then
             break
         else
             print_error "IP/域名格式不正确，请重新输入"
@@ -391,7 +392,8 @@ module_install_gotify() {
     fi
 
     # URL/Token 格式验证
-    if [[ ! "$GOTIFY_URL" =~ ^(https?://)?([a-zA-Z0-9\-\.]+)(:\d+)?(/.*)?$ ]]; then
+    local re='^(https?://)?([a-zA-Z0-9.-]+)(:[0-9]+)?(/.*)?$'
+    if [[ ! "$GOTIFY_URL" =~ $re ]]; then
         print_error "无效的 Gotify URL 格式: $GOTIFY_URL"
         exit 1
     fi
