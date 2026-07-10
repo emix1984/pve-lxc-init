@@ -517,10 +517,10 @@ SERVICE
 
     if ! cat > "$timer_path" <<TIMER
 [Unit]
-Description=Run Gotify System Report every 2 hours (on the hour)
+Description=Run Gotify System Report every 2 hours starting from 10:00
 
 [Timer]
-OnCalendar=*-*-* 0:00/2:00
+OnCalendar=*-*-* 10:00/2:00
 Persistent=true
 
 [Install]
@@ -640,7 +640,7 @@ MSGBODY
         print_info "jq 不可用，使用 form-data 方式发送..."
         curl -s -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
             -F "title=伺服器 [ ${DEVICE_NAME} ] 运行报告" \
-            -F "message=$message" \
+            -d "message=$message" \
             -F "priority=3" > /dev/null 2>&1
     else
         curl -s -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
@@ -1008,10 +1008,10 @@ UNIT
 
     cat > "$timer_path" <<TIMER
 [Unit]
-Description=Run Tailscale Peer Monitor every 2 hours (on the hour)
+Description=Run Tailscale Peer Monitor every 2 hours starting from 10:00
 
 [Timer]
-OnCalendar=*-*-* 0:00/2:00
+OnCalendar=*-*-* 10:00/2:00
 Persistent=true
 
 [Install]
