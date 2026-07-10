@@ -83,7 +83,7 @@ backup_file() {
     local backup_path="${source}.bak.$(date +%Y%m%d_%H%M%S)"
     if [ -f "$source" ]; then
         cp "$source" "$backup_path"
-        print_success "已备份: $backup_path"
+        print_success "已备份: $backup_path" >&2
     fi
     echo "$backup_path"
 }

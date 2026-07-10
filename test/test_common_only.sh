@@ -80,24 +80,7 @@ run_test "print_success should output to stdout" "print_success 'Success' > /dev
 run_test "print_error should output to stdout" "print_error 'Error' > /dev/null 2>&1"
 run_test "print_warning should output to stdout" "print_warning 'Warning' > /dev/null 2>&1"
 
-# 6. Gotify URL validation
-if ! send_gotify 'Test' 'Message' 5 'invalid' 'test'; then
-    echo "✓ PASS"
-    TESTS_PASSED=$((TESTS_PASSED + 1))
-else
-    echo "✗ FAIL"
-    TESTS_FAILED=$((TESTS_FAILED + 1))
-fi
-
-if send_gotify 'Test' 'Message' 5 'https://test.com' 'test'; then
-    echo "✓ PASS"
-    TESTS_PASSED=$((TESTS_PASSED + 1))
-else
-    echo "✗ FAIL"
-    TESTS_FAILED=$((TESTS_FAILED + 1))
-fi
-
-# 7. Logging
+# 6. Logging (remove old Gotify tests - moved to test_send_gotify.sh)
 run_test "write_log should not crash" "write_log 'Test log message' > /dev/null 2>&1"
 
 # 8. print_success_with_log
