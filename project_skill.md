@@ -101,3 +101,4 @@ reboot --force --force 2>/dev/null || reboot -ff 2>/dev/null || echo b > /proc/s
 | `/proc/uptime` 与 `uptime -p` 输出不一致 | `uptime -p` 在短运行时间时格式不同 | 改用 `/proc/uptime` 秒数自行计算天/时/分 |
 | form-data 换行符显示问题 | `-F "message=$message"` 引號包裹导致 `"\n"` 字面字符串 | 改為 `-d "message=$message"` 允許換行符正常顯示 |
 | systemd timer OnCalendar 格式 | `*-*-* 0:00/2:00` 只在整點觸發 | 改為 `10:00/2:00` 從 10:00 開始每 2 小時推送 |
+| 测试监控推送功能 | 需要手动执行系统监控并推送到 Gotify | 菜单选项 [3] --test-monitor 自动执行并显示结果 |

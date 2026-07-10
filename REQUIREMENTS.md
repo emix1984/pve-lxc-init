@@ -11,7 +11,8 @@
 - [x] 统一入口脚本 deploy.sh（互动菜单 + --flag 参数模式）
 - [x] 机器名称自定义（非交互模式通过 --Device 参数传入）
 - [x] Gotify 监控 Agent（Tailscale 自愈 + 资源采集 + 每 2h 推送）
-- [x] systemd timer 自动注册（OnBootSec=5min, OnUnitActiveSec=2h, Persistent=true）
+- [x] systemd timer 自动注册（OnCalendar=*-*-* 10:00/2:00）
+- [x] 菜单选项 [3] 测试监控推送（立即验证推送功能）
 - [x] Peer 断连紧急重启流程（Priority 10 通知 → 三级内核级重启链）
 - [x] jq/form-data 双模式 JSON 推送降级
 - [x] Public IP 多源回退采集
