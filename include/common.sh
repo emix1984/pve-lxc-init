@@ -32,7 +32,7 @@ check_command() {
 }
 
 # ---------------------------- Logging ----------------------------
-LOG_FILE="$SCRIPT_DIR/report_error.log"
+LOG_FILE="${SCRIPT_DIR:-$(dirname "$0")}/report_error.log"
 write_log() {
     if command -v logger &>/dev/null; then
         logger -t "pve-lxc-init" "$1"
@@ -94,14 +94,7 @@ send_gotify() {
     local gotify_url="$4" gotify_token="$5"
     local payload
 
-    # 验证 URL 格式
-    if [[ ! "$gotify_url" =~ ^(https?://)?([a-zA-Z0-9\-\.]+)(:\d+)?(/.*)?$ ]]; then
-        print_error "Invalid Gotify URL format: $gotify_url"
-        return 1
-    fi
-    if [[ "$gotify_url" == */ ]]; then
-        gotify_url="${gotify_url%/}"
-    fi
+    gotify_url="${gotify_url%/}"
 
     payload=$(jq -n \
         --arg title "$title" \
@@ -121,16 +114,13 @@ send_gotify() {
         fi
     fi
 
-    curl -s -m 10 -X POST "${gotify_url}/message?token=${gotify_token}" \
+    if ! curl -s -m 10 -X POST "${gotify_url}/message?token=${gotify_token}" \
         -F "title=${title}" \
         -F "message=${message}" \
-        -F "priority=${priority}" > /dev/null 2>&1
-
-    if [ $? -eq 0 ]; then
-        print_success "Gotify 推送成功 (form-data): $title"
-        return 0
-    else
+        -F "priority=${priority}" > /dev/null 2>&1; then
         print_error "Gotify 推送失敗 (JSON/form-data 皆失敗)"
         return 1
     fi
+    print_success "Gotify 推送成功 (form-data): $title"
+    return 0
 }
