@@ -1234,12 +1234,12 @@ menu_loop() {
                         print_success "Gotify 推送已更新为新名称: $DEVICE_NAME"
                     fi
                 fi
-                if systemctl is-active peer-monitor.timer &>/dev/null; then
+                if systemctl is-active tailscale-peer-monitor.timer &>/dev/null; then
                     echo ""
-                    read -rp "检测到已安装 Peer 监控，是否重新生成脚本? (y/n): " yn2
+                    read -rp "检测到已安装 Tailscale Peer 监控，是否重新生成脚本? (y/n): " yn2
                     if [[ "$yn2" == [yY] ]]; then
-                        module_peer_monitor_install
-                        print_success "Peer 监控已更新为新名称: $DEVICE_NAME"
+                        module_tailscale_peer_monitor_install
+                        print_success "Tailscale Peer 监控已更新为新名称: $DEVICE_NAME"
                     fi
                 fi
                 ;;
@@ -1287,8 +1287,8 @@ usage() {
     echo "  --gotify              安装 Gotify (通知 + 定时监控)"
     echo "  --gotify-report       运行一次系统监控报告"
     echo "  --tailscale-install   安装 Tailscale (含自动更新)"
-    echo "  --peer-monitor        运行一次 Peer 连通性监控"
-    echo "  --peer-monitor-install 安装 Peer 连通性定时监控"
+    echo "  --tailscale-peer-monitor        运行一次 Tailscale Peer 连通性监控"
+    echo "  --tailscale-peer-monitor-install 安装 Tailscale Peer 连通性定时监控"
     echo "  --lid-sleep           禁用笔记本合盖睡眠"
     echo "  --extend-lvm          LVM 根分区扩容"
     echo "  --sys-info            系统信息查询"
@@ -1302,7 +1302,7 @@ usage() {
     echo ""
     echo "示例:"
     echo "  ./deploy.sh --gotify --Device MyServer --GotifyUrl https://gotify.example.com --GotifyToken abc"
-    echo "  ./deploy.sh --peer-monitor-install --Device MyServer --GotifyUrl https://gotify.example.com --GotifyToken abc --PeerIP 100.114.252.115"
+    echo "  ./deploy.sh --tailscale-peer-monitor-install --Device MyServer --GotifyUrl https://gotify.example.com --GotifyToken abc --PeerIP 100.114.252.115"
     exit 0
 }
 
@@ -1315,7 +1315,7 @@ parse_args() {
             --gotify-report)        MODE="gotify-report"; shift ;;
             --tailscale-install)    MODE="tailscale-install"; shift ;;
             --tailscale-peer-monitor)         MODE="tailscale-peer-monitor"; shift ;;
-            --peer-monitor-install) MODE="peer-monitor-install"; shift ;;
+            --tailscale-peer-monitor-install) MODE="tailscale-peer-monitor-install"; shift ;;
             --lid-sleep)            MODE="lid-sleep"; shift ;;
             --extend-lvm)           MODE="extend-lvm"; shift ;;
             --sys-info)             MODE="sys-info"; shift ;;
@@ -1402,7 +1402,7 @@ main() {
         gotify-report)        module_gotify_report_run ;;
         tailscale-install)    module_install_tailscale ;;
         tailscale-peer-monitor)         module_tailscale_peer_monitor_run ;;
-        peer-monitor-install) module_peer_monitor_install ;;
+        tailscale-peer-monitor-install) module_tailscale_peer_monitor_install ;;
         lid-sleep)            module_lid_sleep ;;
         extend-lvm)           module_extend_lvm ;;
         sys-info)             module_sys_info ;;

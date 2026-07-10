@@ -19,9 +19,9 @@ pve-lxc-init 是一套用于 PVE LXC 容器环境（Debian/Ubuntu）的服务器
 │  │系统初始化  │ │  开机通知 + 关机预警 + 定时系统报告 (每2h)   │   │
 │  └───────────┘ └─────────────────────────────────────────────┘   │
 │  ┌──────────────────┐ ┌──────────────────────────────────────┐   │
-│  │ --tailscale-install│ │    --peer-monitor / --peer-monitor-  │   │
+│  │ --tailscale-install│ │    --tailscale-peer-monitor / --tailscale-peer-monitor-  │   │
 │  │ 安装 + 自动更新   │ │    install                            │   │
-│  └──────────────────┘ │  Tailscale 自愈 + Peer 连通性 + 重启  │   │
+│  └──────────────────┘ │  Tailscale 自愈 + Tailscale Peer 连通性 + 重启  │   │
 │                        └──────────────────────────────────────┘   │
 │  ┌───────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────────┐   │
 │  │--ssh-key  │ │--sys-info│ │--extend-  │ │ --lid-sleep      │   │
@@ -57,12 +57,12 @@ pve-lxc-init 是一套用于 PVE LXC 容器环境（Debian/Ubuntu）的服务器
 → 部署定时系统报告 (gotify-report.timer, 每 2h 整点)
 ```
 
-### 3. Peer 连通性监控 (--peer-monitor / --peer-monitor-install)
+### 3. Tailscale Peer 连通性监控 (--tailscale-peer-monitor / --tailscale-peer-monitor-install)
 ```
 Phase A: 参数初始化 (URL/Token/Device/PeerIP)
 Phase B: Tailscale 健康检查 → 自愈重启 → 自动更新
         → Peer 连通性测试 → 失联触发 Docker 安全停止 + 三级强制重启
-Phase C: systemd timer 注册 (peer-monitor.timer, 每 2h 整点)
+Phase C: systemd timer 注册 (tailscale-peer-monitor.timer, 每 2h 整点)
 ```
 
 ### 4. Peer 断连强制重启
@@ -92,7 +92,7 @@ deploy.sh 变量 (DEVICE_NAME/GOTIFY_URL/GOTIFY_TOKEN/TARGET_PEER_IP)
     ├── → load_env: 启动时读取 (仅互动菜单)
     ├── → module_install_gotify: embed 到 /opt/gotify_*.sh + gotify-report service
     ├── → module_gotify_report_run: systemd 定时执行 (纯指标)
-    └── → module_peer_monitor_run/install: embed 到 peer-monitor service/timer
+    └── → module_tailscale_peer_monitor_run/install: embed 到 tailscale-peer-monitor service/timer
 ```
 
 ## 配置文件与路径
@@ -109,6 +109,6 @@ deploy.sh 变量 (DEVICE_NAME/GOTIFY_URL/GOTIFY_TOKEN/TARGET_PEER_IP)
 | 系统报告 timer | `/etc/systemd/system/gotify-report.timer` |
 | 开机通知 service | `/etc/systemd/system/gotify-startup.service` |
 | 关机通知 service | `/etc/systemd/system/gotify-shutdown.service` |
-| Peer 监控 service | `/etc/systemd/system/peer-monitor.service` |
-| Peer 监控 timer | `/etc/systemd/system/peer-monitor.timer` |
+| Tailscale Peer 监控 service | `/etc/systemd/system/tailscale-peer-monitor.service` |
+| Tailscale Peer 监控 timer | `/etc/systemd/system/tailscale-peer-monitor.timer` |
 | 错误日志 | `report_error.log` (与 deploy.sh 同目录) |

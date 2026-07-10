@@ -27,8 +27,8 @@ chmod +x deploy.sh && ./deploy.sh
 # 安装 Gotify (通知 + 定时监控) (需 root)
 ./deploy.sh --gotify --Device MyServer --GotifyUrl https://gotify.example.com --GotifyToken xxxx
 
-# 安装 Peer 连通性监控 (需 root)
-./deploy.sh --peer-monitor-install --Device MyServer --GotifyUrl https://gotify.example.com --GotifyToken xxxx --PeerIP 100.114.252.115
+# 安装 Tailscale Peer 连通性监控 (需 root)
+./deploy.sh --tailscale-peer-monitor-install --Device MyServer --GotifyUrl https://gotify.example.com --GotifyToken xxxx --PeerIP 100.114.252.115
 
 # 系统信息查询
 ./deploy.sh --sys-info
@@ -75,7 +75,7 @@ chmod +x deploy.sh && ./deploy.sh
 - 引导 `tailscale up` 认证流程
 - 自动将 Tailscale IP 设为 Peer IP（可选）
 
-### Peer 连通性监控 (`deploy.sh --peer-monitor / --peer-monitor-install`)
+### Tailscale Peer 连通性监控 (`deploy.sh --tailscale-peer-monitor / --tailscale-peer-monitor-install`)
 - **Tailscale 自愈**: 守护进程状态检查、自动重启、自动更新
 - **Peer 连通性**: 连接检测失败时发送紧急通知（Priority 10）并触发强制重启
 - **Docker 保护**: 重启前安全停止所有运行中的容器
@@ -100,7 +100,7 @@ chmod +x deploy.sh && ./deploy.sh
 ```bash
 ./deploy.sh --init
 ./deploy.sh --tailscale-install
-./deploy.sh --peer-monitor-install --Device "MyServer" --GotifyUrl "https://..." --GotifyToken "..." --PeerIP "100.x.x.x"
+./deploy.sh --tailscale-peer-monitor-install --Device "MyServer" --GotifyUrl "https://..." --GotifyToken "..." --PeerIP "100.x.x.x"
 ```
 
 ### 场景 3：改名后同步 systemd
@@ -137,8 +137,8 @@ pve-lxc-init/
 | `gotify-shutdown.service` | 关机 | 推送关机预警 |
 | `gotify-report.service` | `gotify-report.timer` | 执行系统监控报告 |
 | `gotify-report.timer` | 每 2h 整点 | 触发系统监控 |
-| `peer-monitor.service` | `peer-monitor.timer` | 执行 Peer 连通性检测 |
-| `peer-monitor.timer` | 每 2h 整点 | 触发 Peer 监控 |
+| `tailscale-peer-monitor.service` | `tailscale-peer-monitor.timer` | 执行 Tailscale Peer 连通性检测 |
+| `tailscale-peer-monitor.timer` | 每 2h 整点 | 触发 Tailscale Peer 监控 |
 
 ---
 
