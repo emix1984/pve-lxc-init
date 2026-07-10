@@ -1297,6 +1297,7 @@ usage() {
     echo "  --lid-sleep           禁用笔记本合盖睡眠"
     echo "  --extend-lvm          LVM 根分区扩容"
     echo "  --sys-info            系统信息查询"
+    echo "  --update-force        强制从 GitHub 拉取最新代码（覆盖本地修改）"
     echo ""
     echo "参数:"
     echo "  --Device <名称>      指定机器名称 (默认: hostname)"
@@ -1324,6 +1325,7 @@ parse_args() {
             --lid-sleep)            MODE="lid-sleep"; shift ;;
             --extend-lvm)           MODE="extend-lvm"; shift ;;
             --sys-info)             MODE="sys-info"; shift ;;
+            --update-force)         MODE="update-force"; shift ;;
             --Device)               DEVICE_NAME="$2"; shift 2 ;;
             --GotifyUrl)            GOTIFY_URL="$2"; shift 2 ;;
             --GotifyToken)          GOTIFY_TOKEN="$2"; shift 2 ;;
@@ -1383,6 +1385,61 @@ check_update() {
 }
 
 # ====================================================================
+#                   MODULE: Force Update from GitHub
+# ====================================================================
+module_update_force() {
+    check_root
+
+    command -v git &>/dev/null || { print_error "git 未安装"; exit 1; }
+    git rev-parse --git-dir &>/dev/null || { print_error "不是 git 仓库"; exit 1; }
+
+    local remote_url
+    remote_url=$(git config --get remote.origin.url 2>/dev/null || echo "")
+    if [ -z "$remote_url" ]; then
+        print_error "无法获取远程仓库 URL"
+        exit 1
+    fi
+
+    print_info "正在获取远程仓库信息..."
+    local local_commit remote_commit
+    local_commit=$(git rev-parse HEAD 2>/dev/null || echo "")
+    [ -z "$local_commit" ] && { print_error "无法获取本地提交"; exit 1; }
+
+    remote_commit=$(git ls-remote origin HEAD 2>/dev/null | awk '{print $1}')
+    if [ -z "$remote_commit" ]; then
+        print_error "无法连接远程仓库 (origin)"
+        exit 1
+    fi
+
+    if [ "$local_commit" = "$remote_commit" ]; then
+        print_success "已是最新版本 (${local_commit:0:8})"
+        return 0
+    fi
+
+    echo ""
+    print_warning "发现新版本！"
+    echo "  本地: ${local_commit:0:8}"
+    echo "  远程: ${remote_commit:0:8}"
+    echo ""
+
+    print_info "正在强制同步远程代码到本地..."
+    git fetch origin --force
+    if [ $? -ne 0 ]; then
+        print_error "git fetch 失败"
+        exit 1
+    fi
+
+    git reset --hard origin/main
+    if [ $? -ne 0 ]; then
+        print_error "git reset 失败"
+        exit 1
+    fi
+
+    print_success "已更新至最新版本: ${remote_commit:0:8}"
+    print_info "请重新运行脚本以应用更新"
+}
+
+# ====================================================================
 #                           MAIN
 # ====================================================================
 main() {
@@ -1411,6 +1468,7 @@ main() {
         lid-sleep)            module_lid_sleep ;;
         extend-lvm)           module_extend_lvm ;;
         sys-info)             module_sys_info ;;
+        update-force)         module_update_force ;;
         *)                    print_error "未指定有效模块"; usage ;;
     esac
 }
