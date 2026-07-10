@@ -403,6 +403,8 @@ module_install_gotify() {
     # -------- 1. 开机通知 --------
     local startup_script="/opt/gotify_startup.sh"
     local startup_svc="/etc/systemd/system/gotify-startup.service"
+    local ABS_STARTUP_SCRIPT
+    ABS_STARTUP_SCRIPT="$(cd "$(dirname "$startup_script")" && pwd)/$(basename "$startup_script")"
     if ! cat > "$startup_script" <<EOF
 #!/bin/bash
 curl -s -m 10 -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
@@ -425,7 +427,7 @@ After=network.target
 
 [Service]
 Type=oneshot
-ExecStart=$startup_script
+ExecStart=${ABS_STARTUP_SCRIPT}
 RemainAfterExit=yes
 
 [Install]
@@ -518,7 +520,7 @@ SERVICE
 Description=Run Gotify System Report every 2 hours (on the hour)
 
 [Timer]
-OnCalendar=*:0/2
+OnCalendar=*-*-* 0:00/2:00
 Persistent=true
 
 [Install]
@@ -1009,7 +1011,7 @@ UNIT
 Description=Run Tailscale Peer Monitor every 2 hours (on the hour)
 
 [Timer]
-OnCalendar=*:0/2
+OnCalendar=*-*-* 0:00/2:00
 Persistent=true
 
 [Install]
