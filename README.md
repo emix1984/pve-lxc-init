@@ -66,7 +66,7 @@ chmod +x deploy.sh && ./deploy.sh
 - **资源采集**: Uptime、RAM/CPU、磁盘、Top3 内存进程
 - **网络发现**: Public IP（三源回退）、Local IP、Tailscale IP
 - **纯系统指标**，不含 Tailscale/Peer 检测
-- **推送频率**: 每 2 小时整点（`OnCalendar=*:0/2`）
+- **推送频率**: 每 2 小时整点（`OnCalendar=*-*-* 0:00/2:00`）
 
 ### Tailscale 安装 (`deploy.sh --tailscale-install`)
 - 官方脚本一键安装 (`curl -fsSL https://tailscale.com/install.sh | sh`)
@@ -79,7 +79,7 @@ chmod +x deploy.sh && ./deploy.sh
 - **Tailscale 自愈**: 守护进程状态检查、自动重启、自动更新
 - **Peer 连通性**: 连接检测失败时发送紧急通知（Priority 10）并触发强制重启
 - **Docker 保护**: 重启前安全停止所有运行中的容器
-- **推送频率**: 每 2 小时整点（`OnCalendar=*:0/2`）
+- **推送频率**: 每 2 小时整点（`OnCalendar=*-*-* 0:00/2:00`）
 
 ### 系统信息 (`deploy.sh --sys-info`)
 彩色输出 CPU 拓扑、内存负载、磁盘分布、网络 IP、系统版本、运行中服务等诊断信息。

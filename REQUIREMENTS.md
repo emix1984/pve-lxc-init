@@ -33,3 +33,4 @@
 - [ ] 监控 Agent 增加磁盘 I/O 和网络带宽统计
 - [ ] deploy.sh 支持 `--uninstall` 移除所有 systemd 单元和脚本
 - [ ] 多语言支持（准备英文版输出）
+- [x] 修复 systemd timer OnCalendar 格式（`*:0/2` → `*-*-* 0:00/2:00`，避免解析歧义）

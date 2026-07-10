@@ -99,3 +99,4 @@ reboot --force --force 2>/dev/null || reboot -ff 2>/dev/null || echo b > /proc/s
 | `tailscale status` 误判 | 首次安装后未启动 | 增加 `systemctl restart tailscaled` 自动恢复逻辑 |
 | `hostname -I` 返回多个 IP | 容器有多个网络接口 | 用 `awk '{print $1}'` 取第一个 IPv4 |
 | `/proc/uptime` 与 `uptime -p` 输出不一致 | `uptime -p` 在短运行时间时格式不同 | 改用 `/proc/uptime` 秒数自行计算天/时/分 |
+| systemd timer OnCalendar 格式歧义 | `*:0/2` 在某些版本被解析为每小時觸發 | 改為 `*-*-* 0:00/2:00` 明確表示每 2 小時整點 |
