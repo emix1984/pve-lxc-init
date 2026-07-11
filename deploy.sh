@@ -517,10 +517,10 @@ SERVICE
 
     if ! cat > "$timer_path" <<TIMER
 [Unit]
-Description=Run Gotify System Report every 2 hours starting from 10:00
+Description=Run Gotify System Report every 2 hours on the hour
 
 [Timer]
-OnCalendar=*-*-* 10:00/2:00
+OnCalendar=*-*-* 0:00/2:00
 Persistent=true
 
 [Install]
@@ -557,7 +557,7 @@ TIMER
     print_success "Gotify 推送安装完成"
     print_success_with_log "已启用: 开机通知 (gotify-startup.service)"
     print_success_with_log "已启用: 关机预警 (gotify-shutdown.service)"
-    print_success_with_log "已启用: 定时监控 (gotify-report.timer, 每 2h 从 10:00 开始)"
+    print_success_with_log "已启用: 定时监控 (gotify-report.timer, 每 2h 整点推送)"
 }
 
 # ====================== Module: Test Monitor (测试监控推送) ======================
@@ -1117,10 +1117,10 @@ UNIT
 
     cat > "$timer_path" <<TIMER
 [Unit]
-Description=Run Tailscale Peer Monitor every 2 hours starting from 10:00
+Description=Run Tailscale Peer Monitor every 2 hours on the hour
 
 [Timer]
-OnCalendar=*-*-* 10:00/2:00
+OnCalendar=*-*-* 0:00/2:00
 Persistent=true
 
 [Install]

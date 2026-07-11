@@ -57,7 +57,7 @@ pve-lxc-init 是一套用于 PVE LXC 容器环境（Debian/Ubuntu）的服务器
 ```
 收集 URL/Token → 部署开机通知 (gotify-startup.service)
 → 部署关机预警 (gotify-shutdown.service)
-→ 部署定时系统报告 (gotify-report.timer, 每 2h 从 10:00 开始)
+→ 部署定时系统报告 (gotify-report.timer, 每 2h 整点)
 ```
 
 ### 3. Tailscale Peer 连通性监控 (--tailscale-peer-monitor / --tailscale-peer-monitor-install)
@@ -65,7 +65,7 @@ pve-lxc-init 是一套用于 PVE LXC 容器环境（Debian/Ubuntu）的服务器
 Phase A: 参数初始化 (URL/Token/Device/PeerIP)
 Phase B: Tailscale 健康检查 → 自愈重启 → 自动更新
         → Peer 连通性测试 → 失联触发 Docker 安全停止 + 三级强制重启
-Phase C: systemd timer 注册 (tailscale-peer-monitor.timer, 每 2h 从 10:00 开始)
+Phase C: systemd timer 注册 (tailscale-peer-monitor.timer, 每 2h 整点)
 ```
 
 ### 4. Peer 断连强制重启
