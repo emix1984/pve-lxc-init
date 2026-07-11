@@ -1316,9 +1316,12 @@ validate_menu_input() {
 }
 
 menu_loop() {
+    # 加载持久化配置（环境变量）
+    load_env
+
     while true; do
         show_menu
-        read -rp "   请输入选项编号 [0-12]: " choice
+        read -rp "   请输入选项编号 [0-13]: " choice
         echo ""
 
         if ! [[ "$choice" =~ ^[0-9]+$ ]]; then
