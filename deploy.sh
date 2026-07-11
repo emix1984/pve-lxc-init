@@ -1293,6 +1293,7 @@ show_menu() {
     echo " [11] 修改 Gotify URL/Token"
     echo " [12] 修改 Tailscale Peer IP"
     echo " [13] 系统诊断"
+    echo "  [14] 强制更新代码（忽略本地修改）"
     echo ""
     echo "  [0] 退出"
     echo "--------------------------------------------"
@@ -1378,6 +1379,7 @@ menu_loop() {
                 fi
                 ;;
             13) module_diagnostic ;;
+            14) module_force_update ;;
             0)
                 print_info "感谢使用，再见"
                 exit 0
