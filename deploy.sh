@@ -1379,7 +1379,7 @@ menu_loop() {
                 fi
                 ;;
             13) module_diagnostic ;;
-            14) module_force_update ;;
+            14) module_update_force ;;
             0)
                 print_info "感谢使用，再见"
                 exit 0
