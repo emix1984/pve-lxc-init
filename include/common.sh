@@ -20,17 +20,6 @@ print_error()   { echo -e "${RED}[ERROR]${NC} $1"; }
 print_title()   { echo -e "\n${BLUE}>>> $1${NC}"; }
 print_separator() { echo "------------------------------------------------"; }
 
-# ---------------------------- Validation ----------------------------
-check_command() {
-    local rc=$?
-    if [ $rc -ne 0 ]; then
-        print_error "$1"
-        exit $rc
-    else
-        print_success "$2"
-    fi
-}
-
 # ---------------------------- Logging ----------------------------
 LOG_FILE="${SCRIPT_DIR:-$(dirname "$0")}/report_error.log"
 write_log() {
@@ -84,8 +73,8 @@ backup_file() {
     if [ -f "$source" ]; then
         cp "$source" "$backup_path"
         print_success "已备份: $backup_path" >&2
+        echo "$backup_path"
     fi
-    echo "$backup_path"
 }
 
 # ---------------------------- Gotify Sender (JSON或form-data) ----------------------------

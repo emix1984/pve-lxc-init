@@ -67,6 +67,71 @@ validate_nonempty() {
 }
 
 # ==============================================================================
+#                         SHARED FUNCTIONS
+# ==============================================================================
+
+# 采集系统指标并返回监控报告（stdout）
+_build_system_report_msg() {
+    local days=0 hours=0 mins=0
+    if [ -r /proc/uptime ]; then
+        local uptime_seconds
+        read -r uptime_seconds _ < /proc/uptime
+        days=$(awk "BEGIN {print int($uptime_seconds / 86400)}")
+        hours=$(awk "BEGIN {print int(($uptime_seconds % 86400) / 3600)}")
+        mins=$(awk "BEGIN {print int(($uptime_seconds % 3600) / 60)}")
+    fi
+
+    local load_1min total_mem used_mem
+    load_1min=$(awk '{print $1}' /proc/loadavg 2>/dev/null || echo "N/A")
+    read -r total_mem used_mem _ < <(free -m | awk '/Mem:/ {print $2, $3, $4}') 2>/dev/null || { total_mem=0; used_mem=0; }
+
+    local disk_total disk_used disk_free
+    read -r disk_total disk_used disk_free _ < <(df -BG / | awk 'NR==2 {print $2, $3, $4}') 2>/dev/null || { disk_total="N/A"; disk_used="N/A"; disk_free="N/A"; }
+
+    local top3="N/A"
+    top3=$(ps -eo comm=,rss= --sort=-rss 2>/dev/null | awk '{size=$2/1024; if (size > 0) printf "%s (%.1fMB), ", $1, size}' | head -c -2)
+    [ -z "$top3" ] && top3="N/A"
+
+    local public_ip="N/A"
+    for src in "https://api.ipify.org" "https://ifconfig.me" "https://icanhazip.com"; do
+        public_ip=$(curl -s --max-time 5 "$src" 2>/dev/null | grep -Eo '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$')
+        [ -n "$public_ip" ] && break
+    done
+    [ -z "$public_ip" ] && public_ip="N/A"
+
+    local local_ip
+    local_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    [ -z "$local_ip" ] && local_ip="N/A"
+
+    local ts_ip="N/A"
+    command -v tailscale &>/dev/null && ts_ip=$(tailscale ip -4 2>/dev/null || echo "N/A")
+
+    cat <<SYSRPT
+**伺服器 [ ${DEVICE_NAME} ] 监控报告**
+===================================
+
+**运行时间:** ${days}天 ${hours}时 ${mins}分
+**系统负载:** ${load_1min}
+**内存:** ${used_mem}MB / ${total_mem}MB
+**磁盘 (/):** ${disk_used} / ${disk_total} (剩余: ${disk_free})
+**Top 3 进程:** ${top3}
+
+**Public IP:** ${public_ip}
+**Local IP:** ${local_ip}
+**Tailscale IP:** ${ts_ip}
+
+_$(date '+%Y-%m-%d %H:%M:%S')_
+SYSRPT
+}
+
+# 发送系统监控报告到 Gotify
+_send_system_report() {
+    local message
+    message=$(_build_system_report_msg)
+    send_gotify "伺服器 [ ${DEVICE_NAME} ] 运行报告" "$message" 3 "$GOTIFY_URL" "$GOTIFY_TOKEN"
+}
+
+# ==============================================================================
 #                         MODULE FUNCTIONS
 # ==============================================================================
 
@@ -291,10 +356,15 @@ module_init_server() {
         echo ""
         print_info "验证 Gotify 推送..."
         local test_report_msg
-        test_report_msg="**✅ 服务器初始化完成**\n\n\
-- 服务器: \`$DEVICE_NAME\`\n\
-- 时间: $(date '+%Y-%m-%d %H:%M:%S')\n\
-- 状态: 初始化成功，通知与监控系统运行正常"
+        test_report_msg=$(cat <<MSGBODY
+**✅ 服务器初始化完成**
+===================================
+
+- 服务器: \`${DEVICE_NAME}\`
+- 时间: $(date '+%Y-%m-%d %H:%M:%S')
+- 状态: 初始化成功，通知与监控系统运行正常
+MSGBODY
+)
         if ! send_gotify "✅ 初始化完成 - $DEVICE_NAME" "$test_report_msg" 5 "$GOTIFY_URL" "$GOTIFY_TOKEN"; then
             print_error "Gotify 验证推送失败"
         fi
@@ -505,10 +575,8 @@ After=network.target
 
 [Service]
 Type=oneshot
-ExecStart=${ABS_SCRIPT_DIR}/deploy.sh --gotify-report \\
-    --Device "${DEVICE_NAME}" \\
-    --GotifyUrl "${GOTIFY_URL}" \\
-    --GotifyToken "${GOTIFY_TOKEN}"
+EnvironmentFile=${ENV_FILE}
+ExecStart=${ABS_SCRIPT_DIR}/deploy.sh --gotify-report
 SERVICE
     then
         print_error "系统报告服务创建失败"
@@ -569,91 +637,11 @@ module_test_monitor() {
         print_info "安装方式: 菜单选项 [2] 或命令行 --gotify"
         return 1
     fi
-
-    if [ -z "$DEVICE_NAME" ]; then
-        DEVICE_NAME=$(hostname)
-    fi
+    [ -z "$DEVICE_NAME" ] && DEVICE_NAME=$(hostname)
 
     print_info "正在执行系统监控并推送测试..."
 
-    # Uptime
-    local days=0 hours=0 mins=0
-    if [ -r /proc/uptime ]; then
-        local uptime_seconds
-        read -r uptime_seconds _ < /proc/uptime
-        days=$(awk "BEGIN {print int($uptime_seconds / 86400)}")
-        hours=$(awk "BEGIN {print int(($uptime_seconds % 86400) / 3600)}")
-        mins=$(awk "BEGIN {print int(($uptime_seconds % 3600) / 60)}")
-    fi
-
-    # CPU & Memory
-    local load_1min total_mem used_mem
-    load_1min=$(awk '{print $1}' /proc/loadavg 2>/dev/null || echo "N/A")
-    read -r total_mem used_mem _ < <(free -m | awk '/Mem:/ {print $2, $3, $4}') 2>/dev/null || { total_mem=0; used_mem=0; }
-
-    # Disk
-    local disk_total disk_used disk_free
-    read -r disk_total disk_used disk_free _ < <(df -BG / | awk 'NR==2 {print $2, $3, $4}') 2>/dev/null || { disk_total="N/A"; disk_used="N/A"; disk_free="N/A"; }
-
-    # Top 3 进程
-    local top3="N/A"
-    top3=$(ps -eo comm=,rss= --sort=-rss 2>/dev/null | awk '{size=$2/1024; if (size > 0) printf "%s (%.1fMB), ", $1, size}' | head -c -2)
-    [ -z "$top3" ] && top3="N/A"
-
-    # Public IP
-    local public_ip="N/A"
-    for src in "https://api.ipify.org" "https://ifconfig.me" "https://icanhazip.com"; do
-        public_ip=$(curl -s --max-time 5 "$src" 2>/dev/null | grep -Eo '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$')
-        [ -n "$public_ip" ] && break
-    done
-    [ -z "$public_ip" ] && public_ip="N/A"
-
-    local local_ip
-    local_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
-    [ -z "$local_ip" ] && local_ip="N/A"
-
-    local ts_ip="N/A"
-    command -v tailscale &>/dev/null && ts_ip=$(tailscale ip -4 2>/dev/null || echo "N/A")
-
-    local message
-    message=$(cat <<MSGBODY
-**伺服器 [ ${DEVICE_NAME} ] 监控报告**
-===================================
-
-**运行时间:** ${days}天 ${hours}时 ${mins}分
-**系统负载:** ${load_1min}
-**内存:** ${used_mem}MB / ${total_mem}MB
-**磁盘 (/):** ${disk_used} / ${disk_total} (剩余: ${disk_free})
-**Top 3 进程:** ${top3}
-
-**Public IP:** ${public_ip}
-**Local IP:** ${local_ip}
-**Tailscale IP:** ${ts_ip}
-
-_$(date '+%Y-%m-%d %H:%M:%S')_
-MSGBODY
-)
-
-    local json_payload
-    json_payload=$(jq -n \
-        --arg title "伺服器 [ ${DEVICE_NAME} ] 运行报告" \
-        --arg msg "$message" \
-        '{title: $title, message: $msg, priority: 3,
-          extras: {"client::display": {"contentType": "text/markdown"}}}' 2>/dev/null)
-
-    if [ -z "$json_payload" ]; then
-        print_info "jq 不可用，使用 form-data 方式发送..."
-        curl -s -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
-            -F "title=伺服器 [ ${DEVICE_NAME} ] 运行报告" \
-            -F "message=$message" \
-            -F "priority=3" > /dev/null 2>&1
-    else
-        curl -s -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "$json_payload" > /dev/null 2>&1
-    fi
-
-    if [ $? -eq 0 ]; then
+    if _send_system_report; then
         print_success "监控报告已成功推送到 Gotify"
         echo ""
         print_info "下次定时推送: 每天整点（每 2 小时）"
@@ -671,93 +659,14 @@ MSGBODY
 
 # ====================== Module: Gotify System Report (纯指标，无 Peer) ======================
 module_gotify_report_run() {
-    print_title "Gotify 系统报告"
-
     if [ -z "$GOTIFY_URL" ] || [ -z "$GOTIFY_TOKEN" ]; then
         print_error "请先设定 Gotify URL 和 Token"
-        exit 1
+        return 1
     fi
 
-    print_info "正在采集系统指标..."
+    print_info "正在采集系统指标并推送..."
 
-    # Uptime
-    local days=0 hours=0 mins=0
-    if [ -r /proc/uptime ]; then
-        local uptime_seconds
-        read -r uptime_seconds _ < /proc/uptime
-        days=$(awk "BEGIN {print int($uptime_seconds / 86400)}")
-        hours=$(awk "BEGIN {print int(($uptime_seconds % 86400) / 3600)}")
-        mins=$(awk "BEGIN {print int(($uptime_seconds % 3600) / 60)}")
-    fi
-
-    # CPU & Memory
-    local load_1min total_mem used_mem
-    load_1min=$(awk '{print $1}' /proc/loadavg 2>/dev/null || echo "N/A")
-    read -r total_mem used_mem _ < <(free -m | awk '/Mem:/ {print $2, $3, $4}') 2>/dev/null || { total_mem=0; used_mem=0; }
-
-    # Disk
-    local disk_total disk_used disk_free
-    read -r disk_total disk_used disk_free _ < <(df -BG / | awk 'NR==2 {print $2, $3, $4}') 2>/dev/null || { disk_total="N/A"; disk_used="N/A"; disk_free="N/A"; }
-
-    # Top 3 进程
-    local top3="N/A"
-    top3=$(ps -eo comm=,rss= --sort=-rss 2>/dev/null | awk '{size=$2/1024; if (size > 0) printf "%s (%.1fMB), ", $1, size}' | head -c -2)
-    [ -z "$top3" ] && top3="N/A"
-
-    # Public IP
-    local public_ip="N/A"
-    for src in "https://api.ipify.org" "https://ifconfig.me" "https://icanhazip.com"; do
-        public_ip=$(curl -s --max-time 5 "$src" 2>/dev/null | grep -Eo '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$')
-        [ -n "$public_ip" ] && break
-    done
-    [ -z "$public_ip" ] && public_ip="N/A"
-
-    local local_ip
-    local_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
-    [ -z "$local_ip" ] && local_ip="N/A"
-
-    local ts_ip="N/A"
-    command -v tailscale &>/dev/null && ts_ip=$(tailscale ip -4 2>/dev/null || echo "N/A")
-
-    local message
-    message=$(cat <<MSGBODY
-**伺服器 [ ${DEVICE_NAME} ] 监控报告**
-===================================
-
-**运行时间:** ${days}天 ${hours}时 ${mins}分
-**系统负载:** ${load_1min}
-**内存:** ${used_mem}MB / ${total_mem}MB
-**磁盘 (/):** ${disk_used} / ${disk_total} (剩余: ${disk_free})
-**Top 3 进程:** ${top3}
-
-**Public IP:** ${public_ip}
-**Local IP:** ${local_ip}
-**Tailscale IP:** ${ts_ip}
-
-_$(date '+%Y-%m-%d %H:%M:%S')_
-MSGBODY
-)
-
-    local json_payload
-    json_payload=$(jq -n \
-        --arg title "伺服器 [ ${DEVICE_NAME} ] 运行报告" \
-        --arg msg "$message" \
-        '{title: $title, message: $msg, priority: 3,
-          extras: {"client::display": {"contentType": "text/markdown"}}}' 2>/dev/null)
-
-    if [ -z "$json_payload" ]; then
-        print_info "jq 不可用，使用 form-data 方式发送..."
-        curl -s -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
-            -F "title=伺服器 [ ${DEVICE_NAME} ] 运行报告" \
-            -F "message=$message" \
-            -F "priority=3" > /dev/null 2>&1
-    else
-        curl -s -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "$json_payload" > /dev/null 2>&1
-    fi
-
-    if [ $? -eq 0 ]; then
+    if _send_system_report; then
         print_success "监控报告已推送到 Gotify"
     else
         print_error "Gotify 推送失败"
@@ -813,7 +722,8 @@ module_lid_sleep() {
             failed=true
         fi
     done
-    $failed && exit 1 || print_success "合盖配置全部通过"
+    if $failed; then exit 1; fi
+    print_success "合盖配置全部通过"
 }
 
 # ====================== Module: Extend LVM Root ======================
@@ -1015,7 +925,7 @@ safe_stop_docker() {
     local count
     count=$(echo "$running" | wc -l)
     print_info "检测到 $count 个运行中的 Docker 容器，正在安全停止..."
-    docker stop $running > /dev/null 2>&1
+    echo "$running" | xargs docker stop > /dev/null 2>&1
     print_success "Docker 容器已全部停止"
 }
 
@@ -1030,7 +940,6 @@ module_tailscale_peer_monitor_run() {
     print_info "检查 Tailscale 状态..."
 
     if ! command -v tailscale &>/dev/null; then
-        print_error "Tailscale 未安装，无法执行 Peer 监控"
         print_error "Tailscale 未安装，无法执行 Tailscale Peer 监控"
         exit 1
     fi
@@ -1063,7 +972,15 @@ module_tailscale_peer_monitor_run() {
         else
         print_error "Tailscale Peer $TARGET_PEER_IP 不可达，触发紧急流程"
 
-            local emergency_msg="**紧急：服务器 ${DEVICE_NAME} 即将重启**\n\n原因：Tailscale Peer ${TARGET_PEER_IP} 不可达\n时间：$(date '+%Y-%m-%d %H:%M:%S')"
+            local emergency_msg
+        emergency_msg=$(cat <<MSGBODY
+**紧急：服务器 ${DEVICE_NAME} 即将重启**
+===================================
+
+原因：Tailscale Peer ${TARGET_PEER_IP} 不可达
+时间：$(date '+%Y-%m-%d %H:%M:%S')
+MSGBODY
+)
             send_gotify "紧急警报" "$emergency_msg" 10 "$GOTIFY_URL" "$GOTIFY_TOKEN"
 
             safe_stop_docker
@@ -1103,16 +1020,13 @@ module_tailscale_peer_monitor_install() {
 
     cat > "$service_path" <<UNIT
 [Unit]
-    Description=Tailscale Peer Monitor for ${DEVICE_NAME}
+Description=Tailscale Peer Monitor for ${DEVICE_NAME}
 After=network.target tailscaled.service
 
 [Service]
 Type=oneshot
-    ExecStart=${ABS_SCRIPT_DIR}/deploy.sh --tailscale-peer-monitor \
-    --Device "${DEVICE_NAME}" \\
-    --GotifyUrl "${GOTIFY_URL}" \\
-    --GotifyToken "${GOTIFY_TOKEN}" \\
-    --PeerIP "${TARGET_PEER_IP}"
+EnvironmentFile=${ENV_FILE}
+ExecStart=${ABS_SCRIPT_DIR}/deploy.sh --tailscale-peer-monitor
 UNIT
 
     cat > "$timer_path" <<TIMER
@@ -1242,12 +1156,18 @@ MSGBODY
             if [ -n "$GOTIFY_URL" ] && [ -n "$GOTIFY_TOKEN" ]; then
                 print_info "正在发送测试紧急通知..."
                 local emergency_msg
-                emergency_msg="**⚠️ 连通性测试 - 模拟紧急警报**\n\n\
-- 服务器: \`$DEVICE_NAME\`\n\
-- Peer: \`$TARGET_PEER_IP\`\n\
-- 状态: 🔴 不可达\n\
-- 时间: $(date '+%Y-%m-%d %H:%M:%S')\n\n\
-*此为模拟测试，非真实紧急情况*"
+                emergency_msg=$(cat <<MSGBODY
+**⚠️ 连通性测试 - 模拟紧急警报**
+===================================
+
+- 服务器: \`${DEVICE_NAME}\`
+- Peer: \`${TARGET_PEER_IP}\`
+- 状态: 🔴 不可达
+- 时间: $(date '+%Y-%m-%d %H:%M:%S')
+
+*此为模拟测试，非真实紧急情况*
+MSGBODY
+)
                 send_gotify "⚠️ 模拟紧急警报" "$emergency_msg" 10 "$GOTIFY_URL" "$GOTIFY_TOKEN"
             fi
 
@@ -1351,12 +1271,9 @@ validate_menu_input() {
 }
 
 menu_loop() {
-    # 加载持久化配置（环境变量）
-    load_env
-
     while true; do
         show_menu
-        read -rp "   请输入选项编号 [0-13]: " choice
+        read -rp "   请输入选项编号 [0-14]: " choice
         echo ""
 
         if ! [[ "$choice" =~ ^[0-9]+$ ]]; then
@@ -1579,14 +1496,12 @@ module_update_force() {
     print_info "正在强制同步远程代码到本地..."
     local current_branch
     current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
-    git fetch origin --force
-    if [ $? -ne 0 ]; then
+    if ! git fetch origin --force; then
         print_error "git fetch 失败"
         exit 1
     fi
 
-    git reset --hard "origin/${current_branch}"
-    if [ $? -ne 0 ]; then
+    if ! git reset --hard "origin/${current_branch}"; then
         print_error "git reset 失败"
         exit 1
     fi
