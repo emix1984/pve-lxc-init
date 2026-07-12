@@ -1154,14 +1154,48 @@ module_diagnostic() {
     if [ -n "$GOTIFY_URL" ] && [ -n "$GOTIFY_TOKEN" ]; then
         print_info "测试 Gotify 推送..."
         local test_msg
-        test_msg="**系统诊断 - Gotify 推送测试**\n\n\
-- 服务器: \`$DEVICE_NAME\`\n\
-- 时间: $(date '+%Y-%m-%d %H:%M:%S')\n\
-- 状态: ✅ 推送正常\n\n\
-*若收到本条消息，说明 Gotify 配置正确*"
+        test_msg=$(cat <<MSGBODY
+**系统诊断 - Gotify 推送测试**
+===================================
+
+- 服务器: \`${DEVICE_NAME}\`
+- 时间: $(date '+%Y-%m-%d %H:%M:%S')
+- 状态: ✅ 推送正常
+
+*若收到本条消息，说明 Gotify 配置正确*
+MSGBODY
+)
         send_gotify "🧪 诊断测试 - $DEVICE_NAME" "$test_msg" 5 "$GOTIFY_URL" "$GOTIFY_TOKEN"
+
+        echo ""
+        print_info "正在执行直接 curl 诊断..."
+        local masked_url
+        masked_url="${GOTIFY_URL}/message?token=***${GOTIFY_TOKEN: -4}"
+        echo "   请求: POST $masked_url"
+        local curl_output
+        curl_output=$(curl -s -w "\n%{http_code}" -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
+            -F "title=诊断测试" \
+            -F "message=诊断连通性测试 from ${DEVICE_NAME}" \
+            -F "priority=5" 2>&1) || true
+        local http_code
+        http_code=$(echo "$curl_output" | tail -1)
+        local response
+        response=$(echo "$curl_output" | head -n -1)
+        echo "   HTTP 状态码: $http_code"
+        if [ "$http_code" = "200" ]; then
+            print_success "直接 curl 推送成功（HTTP 200）"
+        else
+            print_error "直接 curl 推送失败"
+            echo "   Gotify 响应: ${response:-（无响应）}"
+            echo "   HTTP 状态码: ${http_code:-（无响应）}"
+            echo ""
+            print_warning "请检查："
+            echo "   1. Gotify URL 是否正确（当前: $GOTIFY_URL）"
+            echo "   2. Token 是否正确（当前结尾: ...${GOTIFY_TOKEN: -4}）"
+            echo "   3. 服务器是否能访问 Gotify 地址"
+        fi
     else
-        print_error "Gotify 未配置，跳过推送测试（选单选项 [10] 配置）"
+        print_error "Gotify 未配置，跳过推送测试（选单选项 [11] 配置）"
     fi
 
     # -------- 2. Tailscale + Peer 状态 --------
@@ -1188,7 +1222,7 @@ module_diagnostic() {
     print_separator
     echo "--- Tailscale Peer 连通性测试 ---"
     if [ -z "$TARGET_PEER_IP" ]; then
-        print_info "未设定 Peer IP，跳过连通性测试（选单选项 [11] 配置）"
+        print_info "未设定 Peer IP，跳过连通性测试（选单选项 [12] 配置）"
     elif ! command -v tailscale &>/dev/null; then
         print_info "Tailscale 未安装，跳过连通性测试"
     elif ! command -v ping &>/dev/null; then
@@ -1336,7 +1370,7 @@ menu_loop() {
             2)  module_install_gotify ;;
             3)  module_test_monitor ;;
             4)  module_install_tailscale ;;
-            5)  module_peer_monitor_install ;;
+            5)  module_tailscale_peer_monitor_install ;;
             6)  module_ssh_key ;;
             7)  module_sys_info ;;
             8)  module_extend_lvm ;;
