@@ -645,7 +645,7 @@ MSGBODY
         print_info "jq 不可用，使用 form-data 方式发送..."
         curl -s -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
             -F "title=伺服器 [ ${DEVICE_NAME} ] 运行报告" \
-            -d "message=$message" \
+            -F "message=$message" \
             -F "priority=3" > /dev/null 2>&1
     else
         curl -s -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
@@ -656,7 +656,7 @@ MSGBODY
     if [ $? -eq 0 ]; then
         print_success "监控报告已成功推送到 Gotify"
         echo ""
-        print_info "下次定时推送: 每天 10:00 (每 2 小时)"
+        print_info "下次定时推送: 每天整点（每 2 小时）"
         if systemctl is-active gotify-report.timer &>/dev/null; then
             print_success "Gotify 定时监控已启用"
         else
@@ -749,7 +749,7 @@ MSGBODY
         print_info "jq 不可用，使用 form-data 方式发送..."
         curl -s -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
             -F "title=伺服器 [ ${DEVICE_NAME} ] 运行报告" \
-            -d "message=$message" \
+            -F "message=$message" \
             -F "priority=3" > /dev/null 2>&1
     else
         curl -s -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
