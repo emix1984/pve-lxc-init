@@ -1493,8 +1493,10 @@ check_update() {
     read -rp "是否强制拉取 GitHub 最新代码? (y/n, 默认 n): " do_update
     if [[ "$do_update" == [yY] ]]; then
         print_info "正在强制同步远程代码..."
+        local current_branch
+        current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
         git fetch origin --force
-        git reset --hard origin/main
+        git reset --hard "origin/${current_branch}"
         print_success "已更新至最新版本: ${remote_commit:0:8}"
         print_info "请重新运行脚本以应用更新"
         exit 0
@@ -1541,13 +1543,15 @@ module_update_force() {
     echo ""
 
     print_info "正在强制同步远程代码到本地..."
+    local current_branch
+    current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
     git fetch origin --force
     if [ $? -ne 0 ]; then
         print_error "git fetch 失败"
         exit 1
     fi
 
-    git reset --hard origin/main
+    git reset --hard "origin/${current_branch}"
     if [ $? -ne 0 ]; then
         print_error "git reset 失败"
         exit 1
@@ -1555,6 +1559,7 @@ module_update_force() {
 
     print_success "已更新至最新版本: ${remote_commit:0:8}"
     print_info "请重新运行脚本以应用更新"
+    exit 0
 }
 
 # ====================================================================
