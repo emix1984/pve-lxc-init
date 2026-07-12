@@ -26,12 +26,12 @@ fi
 
 通过检查 stdin 是否为 TTY 来判断运行上下文，使单个脚本同时支持互动菜单和 systemd 后台执行，无需拆分两个文件。
 
-### 2. 名称传递策略（无 config 文件）
+### 2. 配置传递策略（env 文件）
 
-机器名称通过以下路径传递，避免维护额外配置文件：
-- 互动模式：变量保存在 shell session 中
-- systemd 模式：直接 embed 在 service unit 的 ExecStart 参数中
-- 改名流程：`deploy.sh` 选项 8 → 重新产生 service unit → daemon-reload
+变量通过 `/etc/default/pve-lxc-init` 持久化，systemd 服务通过 `EnvironmentFile` 读取：
+- 互动模式：`load_env()` 加载，`save_env()` 保存
+- systemd 模式：`EnvironmentFile=/etc/default/pve-lxc-init`（**Token 不嵌入 ExecStart**）
+- 改名/改配置流程：菜单 [10]~[12] 修改 → `save_env()` → 自動生效（無需重新安裝服務）
 
 ### 3. JSON 推送降级处理
 
@@ -79,7 +79,7 @@ load_env() {  if [ -f "$ENV_FILE" ]; then source "$ENV_FILE"; fi  }
 save_env() { cat > "$ENV_FILE" <<EOF ...; chmod 600 "$ENV_FILE"; }
 ```
 
-**关键设计**：env 文件仅影响互动菜单的初始值和显示，systemd 背景执行的监控 Agent 通过 ExecStart 嵌入参数运行，完全不依赖 env 文件，避免运行时配置漂移。
+**关键设计**：systemd 服务通过 `EnvironmentFile=/etc/default/pve-lxc-init` 读取配置，Token 不嵌入 ExecStart。修改配置後自動生效，無需重裝服務。
 
 ### 7. Peer 断连三级强制重启
 
@@ -99,6 +99,8 @@ reboot --force --force 2>/dev/null || reboot -ff 2>/dev/null || echo b > /proc/s
 | `tailscale status` 误判 | 首次安装后未启动 | 增加 `systemctl restart tailscaled` 自动恢复逻辑 |
 | `hostname -I` 返回多个 IP | 容器有多个网络接口 | 用 `awk '{print $1}'` 取第一个 IPv4 |
 | `/proc/uptime` 与 `uptime -p` 输出不一致 | `uptime -p` 在短运行时间时格式不同 | 改用 `/proc/uptime` 秒数自行计算天/时/分 |
-| form-data 换行符显示问题 | `-F "message=$message"` 引號包裹导致 `"\n"` 字面字符串 | 改為 `-d "message=$message"` 允許換行符正常顯示 |
-| systemd timer OnCalendar 格式 | `*-*-* 0:00/2:00` 只在整點觸發 | 改為 `10:00/2:00` 從 10:00 開始每 2 小時推送 |
+| form-data 换行符显示问题 | 訊息中用 `\n` 字面字符串而非實際換行 | 改用 heredoc 構建純文字訊息，所有 Gotify 推送訊息統一更換 |
+| systemd timer OnCalendar 格式 | `0:00/2:00` 全天偶數小時推送 | 鎖定 `OnCalendar=*-*-* 0:00/2:00`（00:00, 02:00, ... 22:00） |
 | 测试监控推送功能 | 需要手动执行系统监控并推送到 Gotify | 菜单选项 [3] --test-monitor 自动执行并显示结果 |
+| Token 明文嵌入 systemd ExecStart | `--GotifyToken "${GOTIFY_TOKEN}"` 任何能讀 service 文件的用戶都可看到 Token | 改為 `EnvironmentFile=/etc/default/pve-lxc-init`，修改配置無需重裝服務 |
+| `_send_system_report` 共享函數 | `module_test_monitor` 和 `module_gotify_report_run` 重複 200+ 行指標採集代碼 | 提取 `_build_system_report_msg()` + `_send_system_report()`，兩模組各減至十餘行 |

@@ -101,13 +101,14 @@ chmod +x deploy.sh && ./deploy.sh
 ```bash
 ./deploy.sh --init
 ./deploy.sh --tailscale-install
+# 环境变量会持久化到 /etc/default/pve-lxc-init，systemd 服务通过 EnvironmentFile 读取
 ./deploy.sh --tailscale-peer-monitor-install --Device "MyServer" --GotifyUrl "https://..." --GotifyToken "..." --PeerIP "100.x.x.x"
 ```
 
 ### 场景 3：改名后同步 systemd
 
 ```bash
-# 选单选项 8: 输入新名称 → 自动询问是否更新已安装的 timer/通知
+# 选单选项 10: 输入新名称 → 自动询问是否更新已安装的 timer/通知
 ```
 
 ---
@@ -132,6 +133,9 @@ pve-lxc-init/
 
 ## 安装后生成的 systemd 单元
 
+所有定时服务通过 `EnvironmentFile=/etc/default/pve-lxc-init` 读取配置
+（**Token 不再嵌入 ExecStart**，修改配置后无需重新安装服务）。
+
 | 服务名称 | 触发方式 | 功能 |
 |---------|---------|------|
 | `gotify-startup.service` | 开机 | 推送上线通知 |
@@ -153,22 +157,24 @@ pve-lxc-init/
 -- 常用部署 --
   [1] 一键初始化服务器
   [2] 安装 Gotify (通知 + 定时监控)
+  [3] 测试监控推送（立即验证）
 
 -- Tailscale --
-  [3] 安装 Tailscale
-  [4] 配置 Peer 连通性监控
+  [4] 安装 Tailscale
+  [5] 配置 Tailscale Peer 连通性监控
 
 -- 辅助工具 --
-  [5] SSH 密钥免密部署
-  [6] 系统信息查询
-  [7] LVM 根分区扩容
-  [8] 禁用笔记本合盖睡眠
+  [6] SSH 密钥免密部署
+  [7] 系统信息查询
+  [8] LVM 根分区扩容
+  [9] 禁用笔记本合盖睡眠
 
 -- 系统设置 --
-  [9] 修改机器名称
- [10] 修改 Gotify URL/Token
- [11] 修改 Peer IP
- [12] 系统诊断
+ [10] 修改机器名称
+ [11] 修改 Gotify URL/Token
+ [12] 修改 Tailscale Peer IP
+ [13] 系统诊断
+ [14] 强制更新代码（忽略本地修改）
 
   [0] 退出
 ```

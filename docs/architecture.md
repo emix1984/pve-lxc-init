@@ -33,8 +33,7 @@ pve-lxc-init 是一套用于 PVE LXC 容器环境（Debian/Ubuntu）的服务器
 ├─────────────────────────────────────────────────────────────────┤
 │                       共用层                                      │
 │                    include/common.sh                             │
-│  (print/check_root/check_command/ensure_config/backup_file/     │
-│   send_gotify)                                                   │
+│  (print/check_root/ensure_config/backup_file/send_gotify)        │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -91,11 +90,13 @@ Peer 不可达 → Docker 容器安全停止
 ```
 deploy.sh 变量 (DEVICE_NAME/GOTIFY_URL/GOTIFY_TOKEN/TARGET_PEER_IP)
     │
-    ├── → save_env: 写入 /etc/default/pve-lxc-init (持久化)
-    ├── → load_env: 启动时读取 (仅互动菜单)
-    ├── → module_install_gotify: embed 到 /opt/gotify_*.sh + gotify-report service
+    ├── → save_env: 写入 /etc/default/pve-lxc-init (持久化, chmod 600)
+    ├── → load_env: 启动时读取 (全局, 所有模式)
+    ├── → write startup/shutdown scripts: embed 到 /opt/gotify_*.sh
+    ├── → systemd service: 通过 EnvironmentFile=${ENV_FILE} 读取配置
+    │       (Token 不再嵌入 ExecStart，修改配置后无需重新安装服务)
     ├── → module_gotify_report_run: systemd 定时执行 (纯指标)
-    └── → module_tailscale_peer_monitor_run/install: embed 到 tailscale-peer-monitor service/timer
+    └── → module_tailscale_peer_monitor_run: systemd 定时执行 (Tailscale 自愈 + 连通性检测)
 ```
 
 ## 配置文件与路径

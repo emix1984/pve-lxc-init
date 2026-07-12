@@ -26,7 +26,12 @@
 - [x] 新增 xfsprogs 套件（XFS 根目錄擴容支援）
 - [x] 移除已棄用 net-tools 套件
 - [x] 新增 lsb-release 套件（系統資訊輸出更完整）
-- [x] 獨立 Tailscale 安裝選單 (選項 11)，含自動更新與認證引導
+- [x] 獨立 Tailscale 安裝選單 (選項 4)，含自動更新與認證引導
+- [x] 提取共享函數 _build_system_report_msg() / _send_system_report()，消除 ~200 行重複代碼
+- [x] systemd 服務改用 EnvironmentFile=/etc/default/pve-lxc-init，Token 不再嵌入 ExecStart
+- [x] 全面清除 $? race condition，統一使用 if ! 模式
+- [x] 移除未使用的 check_command() 函數
+- [x] 診斷功能增加直接 curl 測試（顯示 HTTP 狀態碼和伺服器響應）
 
 ## 待优化/衍生需求
 

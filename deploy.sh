@@ -1013,6 +1013,8 @@ module_tailscale_peer_monitor_install() {
         exit 1
     fi
 
+    save_env
+
     check_root
 
     local service_path="/etc/systemd/system/tailscale-peer-monitor.service"
