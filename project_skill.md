@@ -105,3 +105,7 @@ reboot --force --force 2>/dev/null || reboot -ff 2>/dev/null || echo b > /proc/s
 | Token 明文嵌入 systemd ExecStart | `--GotifyToken "${GOTIFY_TOKEN}"` 任何能讀 service 文件的用戶都可看到 Token | 改為 `EnvironmentFile=/etc/default/pve-lxc-init`，修改配置無需重裝服務 |
 | `_send_system_report` 共享函數 | `module_test_monitor` 和 `module_gotify_report_run` 重複 200+ 行指標採集代碼 | 提取 `_build_system_report_msg()` + `_send_system_report()`，兩模組各減至十餘行 |
 | form-data 降级推送缺少 Markdown 格式 | jq 不可用時降級為 form-data，未傳 `extras::client::display::contentType=text/markdown` | form-data 路径补上 `-F "extras::client::display::contentType=text/markdown"` |
+| CPU 計算顯示 `-inf%` | `awk` 輸出科學記號 `2.19e+09`，bash `$(( ))` 無法解析 | 全在 awk 內計算（`printf "%s\n%s\n"` 傳遞兩行，`NR==1/NR==2` 處理） |
+| 記憶體顯示錯誤 (`5.5 / 1.6 GB`) | `read -r _ mem_total_mb mem_used_mb _` 多吞一個 `_`，`free -m` 的 `total/used/free` 錯位賦值 | 改為 `read -r mem_total_mb mem_used_mb _` |
+| Top3 進程顯示全部進程 | `ps \| awk` 後缺少 `head -n 3` 限制 | 在 awk 前加 `head -n 3` |
+| Markdown 單換行折疊 | Markdown 中單換行等於空格，同段落內多行被合併 | 相鄰項目間添加空行強制分段；同組指標用 ` ` 分隔保持同行 |

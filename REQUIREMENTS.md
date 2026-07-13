@@ -34,6 +34,10 @@
 - [x] 診斷功能增加直接 curl 測試（顯示 HTTP 狀態碼和伺服器響應）
 - [x] 系统报告格式优化：CPU%、内存/磁盘 GB 单位、去掉 loadavg、新标题 "Health Report: [设备名]"
 - [x] form-data 降级路径补上 contentType=text/markdown (Gotify Markdown 格式显示)
+- [x] 修复 CPU 计算科学计数法溢出 (`awk` 输出 `2.19e+09` 导致 `$(( ))` 解析失败)
+- [x] 修复内存取值错位 (`read -r _ mem_total_mb mem_used_mb _` 多吞字段导致值与标签不对应)
+- [x] 限制 Top3 进程仅显示前 3 个 (缺少 `head -n 3` 导致显示全部进程)
+- [x] 推送信息 Markdown 格式优化：`###` 标题、`**` 粗体标签、`` ` `` 等宽 IP、`---` 分隔线
 
 ## 待优化/衍生需求
 
