@@ -109,3 +109,4 @@ reboot --force --force 2>/dev/null || reboot -ff 2>/dev/null || echo b > /proc/s
 | 記憶體顯示錯誤 (`5.5 / 1.6 GB`) | `read -r _ mem_total_mb mem_used_mb _` 多吞一個 `_`，`free -m` 的 `total/used/free` 錯位賦值 | 改為 `read -r mem_total_mb mem_used_mb _` |
 | Top3 進程顯示全部進程 | `ps \| awk` 後缺少 `head -n 3` 限制 | 在 awk 前加 `head -n 3` |
 | Markdown 單換行折疊 | Markdown 中單換行等於空格，同段落內多行被合併 | 相鄰項目間添加空行強制分段；同組指標用 ` ` 分隔保持同行 |
+| Markdown `###` 標題渲染字體過大 | Gotify Markdown 渲染 `###` 為大號字體，推送訊息顯得很粗壯 | 改用 `**bold**` 替代 `###`，字體適中清爽；移除 `---` 和 emoji 精簡版面 |
