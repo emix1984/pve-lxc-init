@@ -106,7 +106,8 @@ send_gotify() {
     if ! curl -s -m 10 -X POST "${gotify_url}/message?token=${gotify_token}" \
         -F "title=${title}" \
         -F "message=${message}" \
-        -F "priority=${priority}" > /dev/null 2>&1; then
+        -F "priority=${priority}" \
+        -F "extras::client::display::contentType=text/markdown" > /dev/null 2>&1; then
         print_error "Gotify 推送失敗 (JSON/form-data 皆失敗)"
         return 1
     fi

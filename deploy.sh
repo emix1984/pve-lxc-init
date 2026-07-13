@@ -81,15 +81,42 @@ _build_system_report_msg() {
         mins=$(awk "BEGIN {print int(($uptime_seconds % 3600) / 60)}")
     fi
 
-    local load_1min total_mem used_mem
-    load_1min=$(awk '{print $1}' /proc/loadavg 2>/dev/null || echo "N/A")
-    read -r total_mem used_mem _ < <(free -m | awk '/Mem:/ {print $2, $3, $4}') 2>/dev/null || { total_mem=0; used_mem=0; }
+    local cpu_pct="N/A"
+    if [ -r /proc/stat ]; then
+        local cpu1 cpu2 idle1 total1 idle2 total2
+        cpu1=$(grep '^cpu ' /proc/stat) && sleep 0.1 && cpu2=$(grep '^cpu ' /proc/stat)
+        if [ -n "$cpu1" ] && [ -n "$cpu2" ]; then
+            idle1=$(echo "$cpu1" | awk '{print $5}')
+            total1=$(echo "$cpu1" | awk '{for(i=2;i<=NF;i++) s+=$i} END {print s}')
+            idle2=$(echo "$cpu2" | awk '{print $5}')
+            total2=$(echo "$cpu2" | awk '{for(i=2;i<=NF;i++) s+=$i} END {print s}')
+            cpu_pct=$(awk "BEGIN {printf \"%.0f\", (1 - ($idle2 - $idle1) / ($total2 - $total1)) * 100}")
+        fi
+    fi
 
-    local disk_total disk_used disk_free
-    read -r disk_total disk_used disk_free _ < <(df -BG / | awk 'NR==2 {print $2, $3, $4}') 2>/dev/null || { disk_total="N/A"; disk_used="N/A"; disk_free="N/A"; }
+    local mem_total_gb mem_used_gb
+    if command -v free &>/dev/null; then
+        local mem_total_mb mem_used_mb
+        read -r _ mem_total_mb mem_used_mb _ < <(free -m | awk '/Mem:/ {print $2, $3, $4}') 2>/dev/null || { mem_total_mb=0; mem_used_mb=0; }
+        mem_total_gb=$(awk "BEGIN {printf \"%.1f\", $mem_total_mb / 1024}")
+        mem_used_gb=$(awk "BEGIN {printf \"%.1f\", $mem_used_mb / 1024}")
+    else
+        mem_total_gb="N/A"; mem_used_gb="N/A"
+    fi
+
+    local disk_total_gb disk_used_gb disk_free_gb
+    if command -v df &>/dev/null; then
+        local disk_total_kb disk_used_kb disk_free_kb
+        read -r disk_total_kb disk_used_kb disk_free_kb < <(df -P / | awk 'NR==2 {print $2, $3, $4}') 2>/dev/null || { disk_total_kb=0; disk_used_kb=0; disk_free_kb=0; }
+        disk_total_gb=$(awk "BEGIN {printf \"%.1f\", $disk_total_kb / 1048576}")
+        disk_used_gb=$(awk "BEGIN {printf \"%.1f\", $disk_used_kb / 1048576}")
+        disk_free_gb=$(awk "BEGIN {printf \"%.1f\", $disk_free_kb / 1048576}")
+    else
+        disk_total_gb="N/A"; disk_used_gb="N/A"; disk_free_gb="N/A"
+    fi
 
     local top3="N/A"
-    top3=$(ps -eo comm=,rss= --sort=-rss 2>/dev/null | awk '{size=$2/1024; if (size > 0) printf "%s (%.1fMB), ", $1, size}' | head -c -2)
+    top3=$(ps -eo comm=,rss= --sort=-rss 2>/dev/null | awk '{size=$2/1024; if (size > 0) printf "%s (%.1f MB), ", $1, size}' | head -c -2)
     [ -z "$top3" ] && top3="N/A"
 
     local public_ip="N/A"
@@ -106,21 +133,24 @@ _build_system_report_msg() {
     local ts_ip="N/A"
     command -v tailscale &>/dev/null && ts_ip=$(tailscale ip -4 2>/dev/null || echo "N/A")
 
+    local timestamp
+    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+
     cat <<SYSRPT
-**伺服器 [ ${DEVICE_NAME} ] 监控报告**
-===================================
+系统状态 (@ ${timestamp})
 
-**运行时间:** ${days}天 ${hours}时 ${mins}分
-**系统负载:** ${load_1min}
-**内存:** ${used_mem}MB / ${total_mem}MB
-**磁盘 (/):** ${disk_used} / ${disk_total} (剩余: ${disk_free})
-**Top 3 进程:** ${top3}
+运行时间: ${days}天 ${hours}时 ${mins}分
+公网 IP: ${public_ip}
+内网 IP: ${local_ip}
+Tailscale IP: ${ts_ip}
 
-**Public IP:** ${public_ip}
-**Local IP:** ${local_ip}
-**Tailscale IP:** ${ts_ip}
+资源使用情况
+CPU: ${cpu_pct}%
+内存: ${mem_used_gb} / ${mem_total_gb} GB
+磁盘 (/): ${disk_used_gb} / ${disk_total_gb} GB Free
 
-_$(date '+%Y-%m-%d %H:%M:%S')_
+进程占用 (按内存)
+${top3}
 SYSRPT
 }
 
@@ -128,7 +158,7 @@ SYSRPT
 _send_system_report() {
     local message
     message=$(_build_system_report_msg)
-    send_gotify "伺服器 [ ${DEVICE_NAME} ] 运行报告" "$message" 3 "$GOTIFY_URL" "$GOTIFY_TOKEN"
+    send_gotify "Health Report: [ ${DEVICE_NAME} ]" "$message" 3 "$GOTIFY_URL" "$GOTIFY_TOKEN"
 }
 
 # ==============================================================================

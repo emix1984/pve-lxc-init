@@ -32,6 +32,8 @@
 - [x] 全面清除 $? race condition，統一使用 if ! 模式
 - [x] 移除未使用的 check_command() 函數
 - [x] 診斷功能增加直接 curl 測試（顯示 HTTP 狀態碼和伺服器響應）
+- [x] 系统报告格式优化：CPU%、内存/磁盘 GB 单位、去掉 loadavg、新标题 "Health Report: [设备名]"
+- [x] form-data 降级路径补上 contentType=text/markdown (Gotify Markdown 格式显示)
 
 ## 待优化/衍生需求
 

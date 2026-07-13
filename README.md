@@ -64,8 +64,9 @@ chmod +x deploy.sh && ./deploy.sh
 自动识别 LVM 逻辑卷、检测卷组剩余空间、扩展 LV 至 100%FREE、调整文件系统（ext4/xfs），含备份与验证。
 
 ### 系统监控报告 (`deploy.sh --gotify-report`)
-- **资源采集**: Uptime、RAM/CPU、磁盘、Top3 内存进程
+- **资源采集**: Uptime、CPU%、RAM (GB)、磁盘 (GB)、Top3 内存进程
 - **网络发现**: Public IP（三源回退）、Local IP、Tailscale IP
+- **推送标题**: `Health Report: [设备名]`
 - **纯系统指标**，不含 Tailscale/Peer 检测
 - **推送频率**: 每 2 小时整点（`OnCalendar=*-*-* 0:00/2:00`）
 
@@ -140,7 +141,7 @@ pve-lxc-init/
 |---------|---------|------|
 | `gotify-startup.service` | 开机 | 推送上线通知 |
 | `gotify-shutdown.service` | 关机 | 推送关机预警 |
-| `gotify-report.service` | `gotify-report.timer` | 执行系统监控报告 |
+| `gotify-report.service` | `gotify-report.timer` | 执行系统监控报告 (系统状态) |
 | `gotify-report.timer` | 每 2h 整点 | 触发系统监控 |
 | `tailscale-peer-monitor.service` | `tailscale-peer-monitor.timer` | 执行 Tailscale Peer 连通性检测 |
 | `tailscale-peer-monitor.timer` | 每 2h 整点 | 触发 Tailscale Peer 监控 |
