@@ -83,21 +83,25 @@ _build_system_report_msg() {
 
     local cpu_pct="N/A"
     if [ -r /proc/stat ]; then
-        local cpu1 cpu2 idle1 total1 idle2 total2
-        cpu1=$(grep '^cpu ' /proc/stat) && sleep 0.1 && cpu2=$(grep '^cpu ' /proc/stat)
-        if [ -n "$cpu1" ] && [ -n "$cpu2" ]; then
-            idle1=$(echo "$cpu1" | awk '{print $5}')
-            total1=$(echo "$cpu1" | awk '{for(i=2;i<=NF;i++) s+=$i} END {print s}')
-            idle2=$(echo "$cpu2" | awk '{print $5}')
-            total2=$(echo "$cpu2" | awk '{for(i=2;i<=NF;i++) s+=$i} END {print s}')
-            cpu_pct=$(awk "BEGIN {printf \"%.0f\", (1 - ($idle2 - $idle1) / ($total2 - $total1)) * 100}")
+        local cpu_line1 cpu_line2
+        cpu_line1=$(grep '^cpu ' /proc/stat) && sleep 1 && cpu_line2=$(grep '^cpu ' /proc/stat)
+        if [ -n "$cpu_line1" ] && [ -n "$cpu_line2" ]; then
+            cpu_pct=$(printf "%s\n%s\n" "$cpu_line1" "$cpu_line2" | awk '
+                NR==1 { idle1=$5; total1=0; for(i=2;i<=NF;i++) total1+=$i }
+                NR==2 { idle2=$5; total2=0; for(i=2;i<=NF;i++) total2+=$i }
+                END {
+                    diff=total2 - total1;
+                    if (diff <= 0) {print "N/A"}
+                    else {printf "%.0f", (1 - (idle2 - idle1) / diff) * 100}
+                }
+            ')
         fi
     fi
 
     local mem_total_gb mem_used_gb
     if command -v free &>/dev/null; then
         local mem_total_mb mem_used_mb
-        read -r _ mem_total_mb mem_used_mb _ < <(free -m | awk '/Mem:/ {print $2, $3, $4}') 2>/dev/null || { mem_total_mb=0; mem_used_mb=0; }
+        read -r mem_total_mb mem_used_mb _ < <(free -m | awk '/Mem:/ {print $2, $3, $4}') 2>/dev/null || { mem_total_mb=0; mem_used_mb=0; }
         mem_total_gb=$(awk "BEGIN {printf \"%.1f\", $mem_total_mb / 1024}")
         mem_used_gb=$(awk "BEGIN {printf \"%.1f\", $mem_used_mb / 1024}")
     else
@@ -116,7 +120,7 @@ _build_system_report_msg() {
     fi
 
     local top3="N/A"
-    top3=$(ps -eo comm=,rss= --sort=-rss 2>/dev/null | awk '{size=$2/1024; if (size > 0) printf "%s (%.1f MB), ", $1, size}' | head -c -2)
+    top3=$(ps -eo comm=,rss= --sort=-rss 2>/dev/null | head -n 3 | awk '{size=$2/1024; if (size > 0) printf "%s (%.1f MB), ", $1, size}' | head -c -2)
     [ -z "$top3" ] && top3="N/A"
 
     local public_ip="N/A"
