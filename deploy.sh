@@ -143,24 +143,19 @@ _build_system_report_msg() {
     cat <<SYSRPT
 ## 系统状态 (@ ${timestamp})
 
----
-
 **运行时间:** ${days}天 ${hours}时 ${mins}分
-**公网 IP:** \`${public_ip}\`
-**内网 IP:** \`${local_ip}\`
-**Tailscale IP:** \`${ts_ip}\`
+
+**公网 IP:** \`${public_ip}\` **内网 IP:** \`${local_ip}\` **Tailscale IP:** \`${ts_ip}\`
 
 ---
 
-### 📈 资源使用情况
+## 📈 资源使用情况
 
-**CPU:** ${cpu_pct}%
-**内存:** ${mem_used_gb} / ${mem_total_gb} GB
-**磁盘 (/):** ${disk_used_gb} / ${disk_total_gb} GB Free
+**CPU:** ${cpu_pct}%  **内存:** ${mem_used_gb} / ${mem_total_gb} GB  **磁盘 (/):** ${disk_used_gb} / ${disk_total_gb} GB Free
 
 ---
 
-### 🔝 进程占用 (按内存)
+## 🔝 进程占用 (按内存)
 
 ${top3}
 SYSRPT
