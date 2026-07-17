@@ -39,6 +39,9 @@
 - [x] 限制 Top3 进程仅显示前 3 个 (缺少 `head -n 3` 导致显示全部进程)
 - [x] 推送信息 Markdown 格式优化：`**bold**` 标题替代 `###` 减小字号、`<br>` 换行、移除 emoji 和 `---` 分隔线
 - [x] Markdown 单换行折叠修复：相邻信息间加空行强制分段，同组指标用 ` ` 保持同行
+- [x] 修复 flag 模式下 `save_env()` 未调用导致 EnvironmentFile 缺失（僅互動模式調用，flag 跳過）
+- [x] 修复 `ExecStart` 路徑指向臨時目錄：安裝時自動複製腳本到 `/opt/pve-lxc-init/`，systemd 服務指向固定路徑
+- [x] 修复 tailscale-peer-monitor service 使用未定義變量 `ABS_SCRIPT_DIR`（`set -o nounset` 下會崩潰）
 
 ## 待优化/衍生需求
 

@@ -490,8 +490,8 @@ module_install_gotify() {
                 print_error "Gotify URL 和 Token 都不能为空"
             fi
         done
-        save_env
     fi
+    save_env
 
     # URL/Token 格式验证
     local re='^(https?://)?([a-zA-Z0-9.-]+)(:[0-9]+)?(/.*)?$'
@@ -597,7 +597,19 @@ EOF
     print_success "关机通知已激活"
 
     # -------- 3. 定时监控 (纯系统指标，不含 Tailscale/Peer) --------
-    local ABS_SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+    local ABS_SCRIPT_DIR="/opt/pve-lxc-init"
+    mkdir -p "$ABS_SCRIPT_DIR"
+    if ! cp "$0" "$ABS_SCRIPT_DIR/deploy.sh" 2>/dev/null; then
+        print_error "复制脚本到 $ABS_SCRIPT_DIR 失败"
+        exit 1
+    fi
+    if [ -d "$(dirname "$0")/include" ]; then
+        mkdir -p "$ABS_SCRIPT_DIR/include"
+        cp -r "$(dirname "$0")/include/"* "$ABS_SCRIPT_DIR/include/"
+    fi
+    chmod +x "$ABS_SCRIPT_DIR/deploy.sh"
+    print_info "脚本已安装至 $ABS_SCRIPT_DIR"
+
     local service_path="/etc/systemd/system/gotify-report.service"
     local timer_path="/etc/systemd/system/gotify-report.timer"
     if ! cat > "$service_path" <<SERVICE
@@ -1049,6 +1061,20 @@ module_tailscale_peer_monitor_install() {
 
     check_root
 
+    local TS_SCRIPT_DIR="/opt/pve-lxc-init"
+    if [ ! -f "$TS_SCRIPT_DIR/deploy.sh" ]; then
+        mkdir -p "$TS_SCRIPT_DIR"
+        if ! cp "$0" "$TS_SCRIPT_DIR/deploy.sh" 2>/dev/null; then
+            print_error "复制脚本到 $TS_SCRIPT_DIR 失败"
+            exit 1
+        fi
+        if [ -d "$(dirname "$0")/include" ]; then
+            mkdir -p "$TS_SCRIPT_DIR/include"
+            cp -r "$(dirname "$0")/include/"* "$TS_SCRIPT_DIR/include/"
+        fi
+        chmod +x "$TS_SCRIPT_DIR/deploy.sh"
+        print_info "脚本已安装至 $TS_SCRIPT_DIR"
+    fi
     local service_path="/etc/systemd/system/tailscale-peer-monitor.service"
     local timer_path="/etc/systemd/system/tailscale-peer-monitor.timer"
 
@@ -1060,7 +1086,7 @@ After=network.target tailscaled.service
 [Service]
 Type=oneshot
 EnvironmentFile=${ENV_FILE}
-ExecStart=${ABS_SCRIPT_DIR}/deploy.sh --tailscale-peer-monitor
+ExecStart=${TS_SCRIPT_DIR}/deploy.sh --tailscale-peer-monitor
 UNIT
 
     cat > "$timer_path" <<TIMER

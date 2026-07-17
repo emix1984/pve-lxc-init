@@ -110,3 +110,6 @@ reboot --force --force 2>/dev/null || reboot -ff 2>/dev/null || echo b > /proc/s
 | Top3 進程顯示全部進程 | `ps \| awk` 後缺少 `head -n 3` 限制 | 在 awk 前加 `head -n 3` |
 | Markdown 單換行折疊 | Markdown 中單換行等於空格，同段落內多行被合併 | 相鄰項目間添加空行強制分段；同組指標用 ` ` 分隔保持同行 |
 | Markdown `###` 標題渲染字體過大 | Gotify Markdown 渲染 `###` 為大號字體，推送訊息顯得很粗壯 | 改用 `**bold**` 替代 `###`，字體適中清爽；移除 `---` 和 emoji 精簡版面 |
+| `save_env()` flag 模式下未調用 | `module_install_gotify` 中 `save_env` 在 `if [ -z "$GOTIFY_URL" ]` 內部，flag 模式變數已設跳過該分支 | 移出 `if` 塊，無條件調用 `save_env` |
+| `ExecStart` 路徑指向 `/tmp/` 等臨時目錄 | `ABS_SCRIPT_DIR` 使用 `$(dirname "$0")`，下載到 `/tmp` 執行後 path 寫死到臨時位置 | 安裝時複製腳本至 `/opt/pve-lxc-init/`，`ExecStart` 指向固定路徑 |
+| tailscale 模組引用未定義變量 `ABS_SCRIPT_DIR` | `module_tailscale_peer_monitor_install` 中 `ExecStart=${ABS_SCRIPT_DIR}/deploy.sh`，該變量僅在 gotify 模組定義為 local | 改為 `TS_SCRIPT_DIR` 並在函數內定義 |
