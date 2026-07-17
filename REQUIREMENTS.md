@@ -42,6 +42,8 @@
 - [x] 修复 flag 模式下 `save_env()` 未调用导致 EnvironmentFile 缺失（僅互動模式調用，flag 跳過）
 - [x] 修复 `ExecStart` 路徑指向臨時目錄：安裝時自動複製腳本到 `/opt/pve-lxc-init/`，systemd 服務指向固定路徑
 - [x] 修复 tailscale-peer-monitor service 使用未定義變量 `ABS_SCRIPT_DIR`（`set -o nounset` 下會崩潰）
+- [x] 無 systemd 環境備選方案：自動檢測 systemd/cron，定時監控和開機通知通過 `/etc/cron.d/` 實現
+- [x] 新增 `_has_systemd()` / `_has_crond()` 檢測函數，按可用服務自動選擇註冊方式
 
 ## 待优化/衍生需求
 

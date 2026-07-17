@@ -67,6 +67,18 @@ validate_nonempty() {
 }
 
 # ==============================================================================
+#                     SYSTEMD / CRON DETECTION
+# ==============================================================================
+
+_has_systemd() {
+    command -v systemctl &>/dev/null && systemctl is-system-running &>/dev/null 2>&1
+}
+
+_has_crond() {
+    [ -d /etc/cron.d ] && ( command -v cron &>/dev/null || command -v crond &>/dev/null )
+}
+
+# ==============================================================================
 #                         SHARED FUNCTIONS
 # ==============================================================================
 
@@ -504,9 +516,6 @@ module_install_gotify() {
 
     # -------- 1. 开机通知 --------
     local startup_script="/opt/gotify_startup.sh"
-    local startup_svc="/etc/systemd/system/gotify-startup.service"
-    local ABS_STARTUP_SCRIPT
-    ABS_STARTUP_SCRIPT="$(cd "$(dirname "$startup_script")" && pwd)/$(basename "$startup_script")"
     if ! cat > "$startup_script" <<EOF
 #!/bin/bash
 curl -s -m 10 -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
@@ -522,36 +531,46 @@ EOF
         print_error "启动通知脚本权限设置失败"
         exit 1
     fi
-    if ! cat > "$startup_svc" <<EOF
+
+    local cron_file="/etc/cron.d/pve-lxc-init"
+    if _has_systemd; then
+        local startup_svc="/etc/systemd/system/gotify-startup.service"
+        if ! cat > "$startup_svc" <<EOF
 [Unit]
 Description=Gotify Startup Notification for ${DEVICE_NAME}
 After=network.target
 
 [Service]
 Type=oneshot
-ExecStart=${ABS_STARTUP_SCRIPT}
+ExecStart=$startup_script
 RemainAfterExit=yes
 
 [Install]
 WantedBy=multi-user.target
 EOF
-    then
-        print_error "启动通知 systemd 服务创建失败"
-        exit 1
+        then
+            print_error "启动通知 systemd 服务创建失败"
+            exit 1
+        fi
+        if ! systemctl daemon-reload; then
+            print_error "系统服务缓存更新失败"
+            exit 1
+        fi
+        if ! systemctl enable gotify-startup.service; then
+            print_error "启动通知服务启用失败"
+            exit 1
+        fi
+        print_success "开机通知已激活 (systemd)"
+    elif _has_crond; then
+        echo "@reboot root $startup_script" >> "$cron_file"
+        print_success "开机通知已激活 (cron @reboot)"
+    else
+        print_warning "未检测到 systemd 或 cron，开机通知无法自动注册"
+        print_info "手动执行: $startup_script"
     fi
-    if ! systemctl daemon-reload; then
-        print_error "系统服务缓存更新失败"
-        exit 1
-    fi
-    if ! systemctl enable gotify-startup.service; then
-        print_error "启动通知服务启用失败"
-        exit 1
-    fi
-    print_success "开机通知已激活"
 
     # -------- 2. 关机通知 --------
     local shutdown_script="/opt/gotify_shutdown.sh"
-    local shutdown_svc="/etc/systemd/system/gotify-shutdown.service"
     if ! cat > "$shutdown_script" <<EOF
 #!/bin/bash
 curl -s -m 10 -X POST "${GOTIFY_URL}/message?token=${GOTIFY_TOKEN}" \
@@ -567,7 +586,10 @@ EOF
         print_error "关机通知脚本权限设置失败"
         exit 1
     fi
-    if ! cat > "$shutdown_svc" <<EOF
+
+    if _has_systemd; then
+        local shutdown_svc="/etc/systemd/system/gotify-shutdown.service"
+        if ! cat > "$shutdown_svc" <<EOF
 [Unit]
 Description=Gotify Shutdown Notification for ${DEVICE_NAME}
 DefaultDependencies=no
@@ -582,21 +604,24 @@ RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
 EOF
-    then
-        print_error "关机通知 systemd 服务创建失败"
-        exit 1
+        then
+            print_error "关机通知 systemd 服务创建失败"
+            exit 1
+        fi
+        if ! systemctl daemon-reload; then
+            print_error "系统服务缓存更新失败"
+            exit 1
+        fi
+        if ! systemctl enable gotify-shutdown.service; then
+            print_error "关机通知服务启用失败"
+            exit 1
+        fi
+        print_success "关机通知已激活 (systemd)"
+    else
+        print_warning "关机通知需要 systemd，当前环境不支持"
     fi
-    if ! systemctl daemon-reload; then
-        print_error "系统服务缓存更新失败"
-        exit 1
-    fi
-    if ! systemctl enable gotify-shutdown.service; then
-        print_error "关机通知服务启用失败"
-        exit 1
-    fi
-    print_success "关机通知已激活"
 
-    # -------- 3. 定时监控 (纯系统指标，不含 Tailscale/Peer) --------
+    # -------- 3. 定时监控 (纯系统指标) --------
     local ABS_SCRIPT_DIR="/opt/pve-lxc-init"
     mkdir -p "$ABS_SCRIPT_DIR"
     if ! cp "$0" "$ABS_SCRIPT_DIR/deploy.sh" 2>/dev/null; then
@@ -610,9 +635,13 @@ EOF
     chmod +x "$ABS_SCRIPT_DIR/deploy.sh"
     print_info "脚本已安装至 $ABS_SCRIPT_DIR"
 
-    local service_path="/etc/systemd/system/gotify-report.service"
-    local timer_path="/etc/systemd/system/gotify-report.timer"
-    if ! cat > "$service_path" <<SERVICE
+    # 写 cron 文件头 (idempotent: 先删除旧文件再创建)
+    rm -f "$cron_file"
+
+    if _has_systemd; then
+        local service_path="/etc/systemd/system/gotify-report.service"
+        local timer_path="/etc/systemd/system/gotify-report.timer"
+        if ! cat > "$service_path" <<SERVICE
 [Unit]
 Description=Gotify System Report for ${DEVICE_NAME}
 After=network.target
@@ -622,12 +651,12 @@ Type=oneshot
 EnvironmentFile=${ENV_FILE}
 ExecStart=${ABS_SCRIPT_DIR}/deploy.sh --gotify-report
 SERVICE
-    then
-        print_error "系统报告服务创建失败"
-        exit 1
-    fi
+        then
+            print_error "系统报告服务创建失败"
+            exit 1
+        fi
 
-    if ! cat > "$timer_path" <<TIMER
+        if ! cat > "$timer_path" <<TIMER
 [Unit]
 Description=Run Gotify System Report every 2 hours on the hour
 
@@ -638,38 +667,63 @@ Persistent=true
 [Install]
 WantedBy=timers.target
 TIMER
-    then
-        print_error "系统报告定时器创建失败"
-        exit 1
-    fi
+        then
+            print_error "系统报告定时器创建失败"
+            exit 1
+        fi
 
-    if ! systemctl daemon-reload; then
-        print_error "系统服务缓存更新失败"
-        exit 1
-    fi
+        if ! systemctl daemon-reload; then
+            print_error "系统服务缓存更新失败"
+            exit 1
+        fi
 
-    if ! systemctl enable --now gotify-report.timer; then
-        print_error "系统报告定时器注册失败"
-        exit 1
-    fi
-    print_success_with_log "定时监控已注册，每 2 小时执行一次"
+        if ! systemctl enable --now gotify-report.timer; then
+            print_error "系统报告定时器注册失败"
+            exit 1
+        fi
+        print_success_with_log "定时监控已注册 (systemd timer, 每 2h 整点)"
 
-    # 立即执行首轮
-    print_info "首次运行系统监控..."
-    if ! systemctl start gotify-report.service; then
-        print_error "首次运行系统监控服务启动失败"
-        exit 1
+        print_info "首次运行系统监控..."
+        if ! systemctl start gotify-report.service; then
+            print_error "首次运行系统监控服务启动失败"
+            exit 1
+        fi
+        sleep 2
+        print_success "首次监控已触发，下次将在整点推送"
+        echo ""
+        print_info "定时器排程:"
+        systemctl list-timers | grep gotify-report || print_info "无计时器信息"
+    elif _has_crond; then
+        cat > "$cron_file" <<CRON
+# pve-lxc-init 定时任务 - 由 deploy.sh 自动管理
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+0 */2 * * * root ${ABS_SCRIPT_DIR}/deploy.sh --gotify-report
+CRON
+        chmod 644 "$cron_file"
+        print_success_with_log "定时监控已注册 (cron, 每 2h 整点)"
+
+        print_info "首次运行系统监控..."
+        if bash "$ABS_SCRIPT_DIR/deploy.sh" --gotify-report; then
+            print_success "首次监控已触发"
+        fi
+    else
+        print_warning "未检测到 systemd 或 cron，定时监控无法注册"
     fi
-    sleep 2
-    print_success "首次监控已触发，下次将在整点推送"
-    echo ""
-    print_info "定时器排程:"
-    systemctl list-timers | grep gotify-report || print_info "无计时器信息"
 
     print_success "Gotify 推送安装完成"
-    print_success_with_log "已启用: 开机通知 (gotify-startup.service)"
-    print_success_with_log "已启用: 关机预警 (gotify-shutdown.service)"
-    print_success_with_log "已启用: 定时监控 (gotify-report.timer, 每 2h 整点推送)"
+    if _has_systemd; then
+        print_success_with_log "已启用: 开机通知 (systemd gotify-startup.service)"
+        print_success_with_log "已启用: 关机预警 (systemd gotify-shutdown.service)"
+        print_success_with_log "已启用: 定时监控 (systemd gotify-report.timer, 每 2h 整点)"
+    elif _has_crond; then
+        print_success_with_log "已启用: 开机通知 (cron @reboot)"
+        print_success_with_log "已启用: 定时监控 (cron /etc/cron.d/pve-lxc-init, 每 2h 整点)"
+        print_warning "关机预警: 当前环境不支持"
+    else
+        print_error "无法注册定时任务，请手动设置"
+    fi
 }
 
 # ====================== Module: Test Monitor (测试监控推送) ======================
@@ -1075,10 +1129,14 @@ module_tailscale_peer_monitor_install() {
         chmod +x "$TS_SCRIPT_DIR/deploy.sh"
         print_info "脚本已安装至 $TS_SCRIPT_DIR"
     fi
-    local service_path="/etc/systemd/system/tailscale-peer-monitor.service"
-    local timer_path="/etc/systemd/system/tailscale-peer-monitor.timer"
 
-    cat > "$service_path" <<UNIT
+    local cron_file="/etc/cron.d/pve-lxc-init-tailscale"
+
+    if _has_systemd; then
+        local service_path="/etc/systemd/system/tailscale-peer-monitor.service"
+        local timer_path="/etc/systemd/system/tailscale-peer-monitor.timer"
+
+        cat > "$service_path" <<UNIT
 [Unit]
 Description=Tailscale Peer Monitor for ${DEVICE_NAME}
 After=network.target tailscaled.service
@@ -1089,7 +1147,7 @@ EnvironmentFile=${ENV_FILE}
 ExecStart=${TS_SCRIPT_DIR}/deploy.sh --tailscale-peer-monitor
 UNIT
 
-    cat > "$timer_path" <<TIMER
+        cat > "$timer_path" <<TIMER
 [Unit]
 Description=Run Tailscale Peer Monitor every 2 hours on the hour
 
@@ -1101,23 +1159,41 @@ Persistent=true
 WantedBy=timers.target
 TIMER
 
-    if ! systemctl daemon-reload; then
-        print_error "系统服务缓存更新失败"
-        exit 1
-    fi
+        if ! systemctl daemon-reload; then
+            print_error "系统服务缓存更新失败"
+            exit 1
+        fi
 
-    if ! systemctl enable --now tailscale-peer-monitor.timer; then
-        print_error "定时器注册失败"
-        exit 1
+        if ! systemctl enable --now tailscale-peer-monitor.timer; then
+            print_error "定时器注册失败"
+            exit 1
+        fi
+        print_success "Tailscale Peer 监控已注册 (systemd timer, 每 2h)"
+
+        print_info "首次运行 Tailscale Peer 监控..."
+        systemctl start tailscale-peer-monitor.service
+        sleep 2
+        print_success "首次 Tailscale Peer 监控已触发"
+        echo ""
+        print_info "定时器排程:"
+        systemctl list-timers | grep tailscale-peer-monitor || true
+    elif _has_crond; then
+        cat > "$cron_file" <<CRON
+# pve-lxc-init Tailscale Peer 监控 - 由 deploy.sh 自动管理
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+0 */2 * * * root ${TS_SCRIPT_DIR}/deploy.sh --tailscale-peer-monitor
+CRON
+        chmod 644 "$cron_file"
+        print_success "Tailscale Peer 监控已注册 (cron, 每 2h)"
+
+        print_info "首次运行 Tailscale Peer 监控..."
+        bash "$TS_SCRIPT_DIR/deploy.sh" --tailscale-peer-monitor || true
+        print_success "首次 Tailscale Peer 监控已触发"
+    else
+        print_warning "未检测到 systemd 或 cron，Tailscale Peer 监控无法注册"
     fi
-    print_success "Tailscale Peer 监控已注册，每 2 小时执行一次"
-    print_info "首次运行 Tailscale Peer 监控..."
-    systemctl start tailscale-peer-monitor.service
-    sleep 2
-    print_success "首次 Tailscale Peer 监控已触发"
-    echo ""
-    print_info "定时器排程:"
-    systemctl list-timers | grep tailscale-peer-monitor || true
 }
 
 # ====================== Module: System Diagnostic ======================

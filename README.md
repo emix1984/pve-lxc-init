@@ -132,7 +132,11 @@ pve-lxc-init/
 
 ---
 
-## 安装后生成的 systemd 单元
+## 注册的定时任务
+
+自动检测运行环境，优先使用 systemd，無 systemd 時降级到 cron。
+
+### 有 systemd
 
 所有定时服务通过 `EnvironmentFile=/etc/default/pve-lxc-init` 读取配置
 （**Token 不再嵌入 ExecStart**，修改配置后无需重新安装服务）。
@@ -145,6 +149,18 @@ pve-lxc-init/
 | `gotify-report.timer` | 每 2h 整点 | 触发系统监控 |
 | `tailscale-peer-monitor.service` | `tailscale-peer-monitor.timer` | 执行 Tailscale Peer 连通性检测 |
 | `tailscale-peer-monitor.timer` | 每 2h 整点 | 触发 Tailscale Peer 监控 |
+
+### 无 systemd (cron 降级)
+
+脚本写入 `/etc/cron.d/` 目录：
+
+| 文件 | 条目 | 功能 |
+|------|------|------|
+| `pve-lxc-init` | `@reboot` | 开机推送上线通知 |
+| `pve-lxc-init` | `0 */2 * * *` | 系统监控报告 (每 2h 整点) |
+| `pve-lxc-init-tailscale` | `0 */2 * * *` | Tailscale Peer 监控 (每 2h 整点) |
+
+> 关机通知需要 systemd（依賴 `ExecStop` 捕獲關機事件），cron 環境下不支持。
 
 ---
 

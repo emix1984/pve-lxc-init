@@ -113,3 +113,4 @@ reboot --force --force 2>/dev/null || reboot -ff 2>/dev/null || echo b > /proc/s
 | `save_env()` flag 模式下未調用 | `module_install_gotify` 中 `save_env` 在 `if [ -z "$GOTIFY_URL" ]` 內部，flag 模式變數已設跳過該分支 | 移出 `if` 塊，無條件調用 `save_env` |
 | `ExecStart` 路徑指向 `/tmp/` 等臨時目錄 | `ABS_SCRIPT_DIR` 使用 `$(dirname "$0")`，下載到 `/tmp` 執行後 path 寫死到臨時位置 | 安裝時複製腳本至 `/opt/pve-lxc-init/`，`ExecStart` 指向固定路徑 |
 | tailscale 模組引用未定義變量 `ABS_SCRIPT_DIR` | `module_tailscale_peer_monitor_install` 中 `ExecStart=${ABS_SCRIPT_DIR}/deploy.sh`，該變量僅在 gotify 模組定義為 local | 改為 `TS_SCRIPT_DIR` 並在函數內定義 |
+| 無 systemd 環境（如部分 LXC）無法註冊 timer | 容器無 systemd 但可能有 cron | 新增 `_has_systemd()` / `_has_crond()` 檢測，自動降級到 `/etc/cron.d/` 寫入定時任務 |
